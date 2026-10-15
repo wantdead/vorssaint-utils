@@ -136,22 +136,46 @@ enum OmniWMWorkspaceSupport {
     }
 }
 
+/// A short Option hold shows the strip; lingering, by holding on or by resting
+/// the pointer on the strip, opens the panel below it.
 struct OmniWMWorkspaceHold {
+    static let showDelay: TimeInterval = 0.2
+    static let expandDelay: TimeInterval = 0.8
+    static let hoverDelay: TimeInterval = 0.35
+    static let releaseGrace: TimeInterval = 0.6
     private var pressedAt: TimeInterval?
+    /// Where the hold's linger is measured from: a workspace switch made with
+    /// Option held restarts it, so Option+number never opens the panel.
+    private var lingerFrom: TimeInterval?
     private var releasedAt: TimeInterval?
+    private var hoveredAt: TimeInterval?
     private(set) var presented = false
+    private(set) var expanded = false
 
     mutating func update(held: Bool, hovered: Bool, now: TimeInterval) -> Bool {
         if held {
             releasedAt = nil
-            if pressedAt == nil { pressedAt = now }
-            if now - (pressedAt ?? now) >= 0.2 { presented = true }
+            if pressedAt == nil { pressedAt = now; lingerFrom = now }
+            if now - (pressedAt ?? now) >= Self.showDelay { presented = true }
+            if presented, now - (lingerFrom ?? now) >= Self.expandDelay { expanded = true }
         } else {
             pressedAt = nil
+            lingerFrom = nil
             if releasedAt == nil { releasedAt = now }
-            if !hovered, now - (releasedAt ?? now) >= 0.6 { presented = false }
+            if !hovered, now - (releasedAt ?? now) >= Self.releaseGrace { presented = false }
         }
+        if presented, hovered {
+            if hoveredAt == nil { hoveredAt = now }
+            if now - (hoveredAt ?? now) >= Self.hoverDelay { expanded = true }
+        } else {
+            hoveredAt = nil
+        }
+        if !presented { expanded = false }
         return presented
+    }
+
+    mutating func switched(now: TimeInterval) {
+        if lingerFrom != nil, !expanded { lingerFrom = now }
     }
 }
 
@@ -239,5 +263,64 @@ struct OmniWMWorkspaceLayout {
 
     private static func rowWidth(_ widths: ArraySlice<CGFloat>) -> CGFloat {
         widths.reduce(0, +) + CGFloat(max(0, widths.count - 1)) * spacing
+    }
+}
+
+/// One line per window in a panel card.
+struct OmniWMWorkspaceWindowRow: Identifiable {
+    let id: String
+    let appName: String
+    let bundleId: String?
+    let title: String?
+    let isFocused: Bool
+
+    static func rows(in workspace: OmniWMWorkspaceBarWorkspace) -> [OmniWMWorkspaceWindowRow] {
+        workspace.apps.flatMap { app in
+            let windows = app.allWindows.isEmpty
+                ? [OmniWMWorkspaceBarWindow(id: app.id, title: app.appName, isFocused: app.isFocused)]
+                : app.allWindows
+            return windows.map { window in
+                let title = window.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                // A window titled after its app says nothing a second line would.
+                return OmniWMWorkspaceWindowRow(id: window.id, appName: app.appName, bundleId: app.bundleId,
+                                                title: title.isEmpty || title == app.appName ? nil : title,
+                                                isFocused: window.isFocused)
+            }
+        }
+    }
+}
+
+/// The strip with a row of workspace cards hanging below it. Only workspaces
+/// holding windows, and the one on screen, get a card: the strip above
+/// already lists every workspace.
+struct OmniWMWorkspacePanelLayout {
+    let strip: OmniWMWorkspaceLayout
+    let cards: [OmniWMWorkspaceBarWorkspace]
+    let rows: Int
+    let cardHeight: CGFloat
+    let size: CGSize
+    static let cardWidth: CGFloat = 176
+    static let cardSpacing: CGFloat = 10
+    static let cardRadius: CGFloat = 20
+    static let cardPadding: CGFloat = 10
+    static let headerHeight: CGFloat = 24
+    static let rowHeight: CGFloat = 34
+    static let maximumRows = 4
+    static let overflowHeight: CGFloat = 18
+    static let topGap: CGFloat = 10
+
+    init(monitor: OmniWMWorkspaceBarMonitor?, geometry: NotchGeometry) {
+        strip = OmniWMWorkspaceLayout(monitor: monitor, geometry: geometry)
+        cards = (monitor?.workspaces ?? []).filter { $0.isOccupied || $0.isFocused }
+        let counts = cards.map { OmniWMWorkspaceWindowRow.rows(in: $0).count }
+        let most = counts.max() ?? 0
+        rows = max(1, min(most, Self.maximumRows))
+        let overflow = most > Self.maximumRows ? Self.overflowHeight : 0
+        cardHeight = Self.cardPadding * 2 + Self.headerHeight + 2 + CGFloat(rows) * Self.rowHeight + overflow
+        let count = CGFloat(cards.count)
+        let row = count * Self.cardWidth + max(0, count - 1) * Self.cardSpacing + NotchLayout.horizontalInset * 2
+        let maximum = max(0, geometry.screen.width - 24)
+        let width = min(maximum, max(strip.size.width, row))
+        size = CGSize(width: width, height: geometry.stripHeight + Self.topGap + cardHeight + NotchLayout.bottomInset)
     }
 }

@@ -62,6 +62,60 @@ enum OmniWMWorkspaceTests {
                      && !hold.update(held: true, hovered: false, now: 2.2), "separate Option taps never accumulate into a hold")
         grouping(suite)
         sizing(suite, geometry: geometry)
+        stages(suite)
+        panel(suite, geometry: geometry)
+    }
+
+    private static func stages(_ suite: TestSuite) {
+        var hold = OmniWMWorkspaceHold()
+        _ = hold.update(held: true, hovered: false, now: 0)
+        _ = hold.update(held: true, hovered: false, now: 0.3)
+        suite.expect(hold.presented && !hold.expanded, "a short Option hold shows the strip alone")
+        _ = hold.update(held: true, hovered: false, now: 0.81)
+        suite.expect(hold.expanded, "holding Option on opens the panel")
+        hold = OmniWMWorkspaceHold()
+        _ = hold.update(held: true, hovered: false, now: 0)
+        _ = hold.update(held: true, hovered: false, now: 0.5)
+        hold.switched(now: 0.5)
+        _ = hold.update(held: true, hovered: false, now: 1.0)
+        suite.expect(hold.presented && !hold.expanded, "switching with Option+number restarts the wait for the panel")
+        _ = hold.update(held: true, hovered: false, now: 1.31)
+        suite.expect(hold.expanded, "lingering after a switch still opens the panel")
+        hold = OmniWMWorkspaceHold()
+        _ = hold.update(held: true, hovered: false, now: 0)
+        _ = hold.update(held: true, hovered: false, now: 0.3)
+        _ = hold.update(held: false, hovered: true, now: 0.4)
+        _ = hold.update(held: false, hovered: true, now: 0.6)
+        suite.expect(!hold.expanded, "a pointer passing over the strip does not open the panel")
+        _ = hold.update(held: false, hovered: true, now: 0.76)
+        suite.expect(hold.expanded, "resting the pointer on the strip opens the panel")
+        _ = hold.update(held: false, hovered: false, now: 1.0)
+        _ = hold.update(held: false, hovered: false, now: 1.61)
+        suite.expect(!hold.presented && !hold.expanded, "leaving the panel closes strip and panel together")
+    }
+
+    private static func panel(_ suite: TestSuite, geometry: NotchGeometry) {
+        let sample = monitor([
+            ("1", false, [app("a", "Safari", bundle: "s", windows: [("w1", false), ("w2", true)])]),
+            ("2", true, []),
+            ("3", false, []),
+            ("4", false, [app("b", "Ghostty", bundle: "g", windows: (1...6).map { ("t\($0)", $0 == 1) })])
+        ])
+        let layout = OmniWMWorkspacePanelLayout(monitor: sample, geometry: geometry)
+        suite.expect(layout.cards.map(\.id) == ["1", "2", "4"],
+                     "cards show workspaces with windows and the one on screen, not every empty one")
+        suite.expect(layout.rows == OmniWMWorkspacePanelLayout.maximumRows,
+                     "a busy workspace caps its card at a few windows")
+        suite.expect(layout.size.width >= layout.strip.size.width && layout.size.height > layout.strip.size.height
+                     && layout.size.width <= geometry.screen.width - 24,
+                     "the panel grows down from the strip and stays within the display")
+        let rows = OmniWMWorkspaceWindowRow.rows(in: sample!.workspaces[0])
+        suite.expect(rows.map(\.id) == ["w1", "w2"] && rows.allSatisfy { $0.title == "t" },
+                     "each window gets a row with its title")
+        let plain = OmniWMWorkspaceWindowRow.rows(in: monitor([("x", true, [
+            app("c", "Mail", bundle: "m", windows: [])
+        ])])!.workspaces[0])
+        suite.expect(plain.first?.title == nil, "a window titled after its app shows the app name once")
     }
 
     private static func app(_ id: String, _ name: String, bundle: String?, focused: Bool = false,
@@ -138,8 +192,23 @@ enum OmniWMWorkspaceTests {
 }
 
 // Existing island contracts exercise the upstream presentation with the local bar disabled.
-extension NotchDestinationContract.Service { var showsOmniWMWorkspaceBar: Bool { false } }
-extension NotchHoverTests.Service { var showsOmniWMWorkspaceBar: Bool { false } }
-extension NotchMirrorContract.Service { var showsOmniWMWorkspaceBar: Bool { false } }
-extension NotchMusicVisibilityTests.Service { var showsOmniWMWorkspaceBar: Bool { false } }
-extension NotchPresentationRefreshContract.Service { var showsOmniWMWorkspaceBar: Bool { false } }
+extension NotchDestinationContract.Service {
+    var showsOmniWMWorkspaceBar: Bool { false }
+    var showsOmniWMWorkspacePanel: Bool { false }
+}
+extension NotchHoverTests.Service {
+    var showsOmniWMWorkspaceBar: Bool { false }
+    var showsOmniWMWorkspacePanel: Bool { false }
+}
+extension NotchMirrorContract.Service {
+    var showsOmniWMWorkspaceBar: Bool { false }
+    var showsOmniWMWorkspacePanel: Bool { false }
+}
+extension NotchMusicVisibilityTests.Service {
+    var showsOmniWMWorkspaceBar: Bool { false }
+    var showsOmniWMWorkspacePanel: Bool { false }
+}
+extension NotchPresentationRefreshContract.Service {
+    var showsOmniWMWorkspaceBar: Bool { false }
+    var showsOmniWMWorkspacePanel: Bool { false }
+}

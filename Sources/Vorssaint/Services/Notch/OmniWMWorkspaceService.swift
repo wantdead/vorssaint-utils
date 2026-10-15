@@ -8,6 +8,8 @@ final class OmniWMWorkspaceService: ObservableObject {
     static let shared = OmniWMWorkspaceService()
     @Published private(set) var monitors: [OmniWMWorkspaceBarMonitor] = []
     @Published private(set) var isPresented = false
+    /// The panel of workspace cards is open below the strip.
+    @Published private(set) var isExpanded = false
     @Published private(set) var connection = OmniWMConnection.off
     @Published private(set) var pendingWorkspaceID: String?
     /// Called with `true` when the strip appears or leaves, and with `false`
@@ -85,7 +87,7 @@ final class OmniWMWorkspaceService: ObservableObject {
             modifierTimer = nil
             hold = OmniWMWorkspaceHold()
             hoveredDisplays.removeAll()
-            setPresented(false)
+            setPresented(false, expanded: false)
         }
     }
 
@@ -94,12 +96,14 @@ final class OmniWMWorkspaceService: ObservableObject {
         // Option must be the only modifier so existing multi-modifier shortcuts keep working.
         let mask: NSEvent.ModifierFlags = [.option, .command, .control, .shift]
         let held = NSEvent.modifierFlags.intersection(mask) == .option
-        setPresented(hold.update(held: held, hovered: !hoveredDisplays.isEmpty, now: now))
+        let presented = hold.update(held: held, hovered: !hoveredDisplays.isEmpty, now: now)
+        setPresented(presented, expanded: hold.expanded)
     }
 
-    private func setPresented(_ value: Bool) {
-        guard isPresented != value else { return }
+    private func setPresented(_ value: Bool, expanded: Bool) {
+        guard isPresented != value || isExpanded != expanded else { return }
         isPresented = value
+        isExpanded = value && expanded
         if !value { pendingWorkspaceID = nil }
         presentationChanged?(true)
     }
@@ -151,7 +155,11 @@ final class OmniWMWorkspaceService: ObservableObject {
     }
 
     private func receive(_ payload: OmniWMWorkspaceBarPayload) {
+        let focused = Set(monitors.flatMap(\.workspaces).filter(\.isFocused).map(\.id))
         monitors = payload.monitors
+        if focused != Set(monitors.flatMap(\.workspaces).filter(\.isFocused).map(\.id)) {
+            hold.switched(now: ProcessInfo.processInfo.systemUptime)
+        }
         connection = .connected
         if let pendingWorkspaceID,
            monitors.flatMap(\.workspaces).contains(where: { $0.id == pendingWorkspaceID && $0.isFocused }) {
@@ -184,6 +192,10 @@ final class OmniWMWorkspaceService: ObservableObject {
     func focus(workspace: OmniWMWorkspaceBarWorkspace) {
         guard !workspace.isFocused || pendingWorkspaceID != nil else { return }
         command(["workspace", "focus-name", workspace.rawName], workspaceID: workspace.id)
+    }
+
+    func focus(window: OmniWMWorkspaceWindowRow, in workspace: OmniWMWorkspaceBarWorkspace) {
+        command(["window", "focus", window.id], workspaceID: workspace.id)
     }
 
     func focus(group: OmniWMWorkspaceAppGroup, in workspace: OmniWMWorkspaceBarWorkspace, cycling: Bool) {

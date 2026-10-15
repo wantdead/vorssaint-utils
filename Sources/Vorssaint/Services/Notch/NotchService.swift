@@ -902,12 +902,19 @@ final class NotchService: ObservableObject {
             && !expanded && !dragPlaceholder && OmniWMWorkspaceService.shared.isPresented
             && OmniWMWorkspaceService.shared.monitor(for: geometry.screen)?.workspaces.isEmpty == false
     }
+    /// The panel of workspace cards hangs below the strip.
+    var showsOmniWMWorkspacePanel: Bool {
+        showsOmniWMWorkspaceBar && OmniWMWorkspaceService.shared.isExpanded
+    }
     /// What the strip last showed, so only its arrival and departure animate.
     private var omniWMBarShown = false
 
     var surfaceSize: CGSize {
         if showsOmniWMWorkspaceBar {
-            return OmniWMWorkspaceSupport.size(OmniWMWorkspaceService.shared.monitor(for: geometry.screen), geometry: geometry)
+            let monitor = OmniWMWorkspaceService.shared.monitor(for: geometry.screen)
+            return showsOmniWMWorkspacePanel
+                ? OmniWMWorkspacePanelLayout(monitor: monitor, geometry: geometry).size
+                : OmniWMWorkspaceSupport.size(monitor, geometry: geometry)
         }
         if let capsule = capsuleSurfaceSize { return capsule }
         if fullscreenCompact { return geometry.bareCutout }
