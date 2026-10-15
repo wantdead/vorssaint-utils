@@ -23,6 +23,38 @@ It has its own preferences and permissions and does not replace the official app
 A plain `./build.sh` builds the optimized variant used by CI; its health check is
 `./build/Vorssaint --selftest`.
 
+### Maintain the local OmniWM fork
+
+The `local/omniwm` branch displays OmniWM workspaces while Option is held.
+Build and launch the separate Developer app:
+
+```sh
+./build.sh --dev
+open "build/stage.noindex/Vorssaint (Developer).app"
+```
+
+Enable Dynamic Island, then use **OmniWM workspaces** in its Behavior settings.
+The workspace bar is enabled by default in this fork. Enable OmniWM IPC;
+`omniwmctl` must be inside OmniWM.app or in `/opt/homebrew/bin` or `/usr/local/bin`.
+Hold Option alone for 200 ms to show the bar. The left wing selects workspaces;
+the right wing shows apps in the selected workspace and focuses their windows. The bar stays for 600 ms after release and remains
+while hovered. Long rows scroll horizontally. Each display shows its own
+workspace list, following the island's existing display selection.
+
+Commit local changes before updating:
+
+```sh
+./Tools/update-local.sh --check
+./Tools/update-local.sh
+```
+
+The updater fetches `origin/main`, merges without rebasing local commits, runs
+the island regression suite and self-test, and builds the Developer app. Merge conflicts abort the
+merge and restore the previous branch state. Failed checks stop installation.
+Pass `--full-tests` to run every repository suite instead of the island suite.
+Pass `--install` to also install and launch after validation. Update this fork
+through the script; release binaries do not contain its local integration.
+
 ### Stable signing
 
 Developer and install builds automatically try to create a stable local signing

@@ -13,18 +13,20 @@ struct NotchMirrorView: View {
         content
             .frame(width: mirror.size.width, height: mirror.size.height, alignment: .top)
             .foregroundStyle(.white)
-            .allowsHitTesting(false)
+            .allowsHitTesting(service.showsOmniWMWorkspaceBar)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .environment(\.colorScheme, .dark)
             .environment(\.notchPresentation, true)
             .tint(.white)
-            .accessibilityHidden(true)
+            .accessibilityHidden(!service.showsOmniWMWorkspaceBar)
     }
 
     @ViewBuilder private var content: some View {
         let geometry = mirror.geometry
         let size = mirror.size
-        if let activity = mirror.activity {
+        if service.showsOmniWMWorkspaceBar {
+            OmniWMWorkspaceBarView(geometry: geometry)
+        } else if let activity = mirror.activity {
             activityStrip(activity, geometry: geometry, size: size)
                 .modifier(NotchMascotActivityVisit(
                     service: service,

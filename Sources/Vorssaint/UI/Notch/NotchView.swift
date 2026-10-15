@@ -75,7 +75,9 @@ struct NotchView: View {
     }
 
     @ViewBuilder private var surface: some View {
-        if service.fullscreenCompact {
+        if service.showsOmniWMWorkspaceBar {
+            OmniWMWorkspaceBarView(geometry: service.geometry)
+        } else if service.fullscreenCompact {
             Color.clear.accessibilityHidden(true)
         } else if let options = service.captureControls {
             if service.captureControlsCollapsed, floats {

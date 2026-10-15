@@ -880,10 +880,11 @@ final class NotchService: ObservableObject {
     }
     var contentSize: CGSize { expandedGeometry.contentSize(for: expandedSize) }
     var usesGlassSurface: Bool {
+        if showsOmniWMWorkspaceBar { return false }
         // The Command Bar keeps the island black, as its drop is: it changes
         // height with every keystroke, and the glass is drawn a frame behind
         // the shape, which showed rows outside it for that frame.
-        (expanded && !showingCommandBar) || peeking || dragPlaceholder || noticeExpanded
+        return (expanded && !showingCommandBar) || peeking || dragPlaceholder || noticeExpanded
             || (captureControls != nil && !captureControlsCollapsed)
     }
 
@@ -895,7 +896,15 @@ final class NotchService: ObservableObject {
             capturesAudio: captureControls?.selectedTool.capturesAudio == true)
     }
 
+    var showsOmniWMWorkspaceBar: Bool {
+        running && !suspended && !fullscreenCompact && captureControls == nil
+            && !expanded && !dragPlaceholder && OmniWMWorkspaceService.shared.isPresented
+    }
+
     var surfaceSize: CGSize {
+        if showsOmniWMWorkspaceBar {
+            return OmniWMWorkspaceSupport.size(OmniWMWorkspaceService.shared.monitor(for: geometry.screen), geometry: geometry)
+        }
         if let capsule = capsuleSurfaceSize { return capsule }
         if fullscreenCompact { return geometry.bareCutout }
         if captureControls != nil {
@@ -932,6 +941,7 @@ final class NotchService: ObservableObject {
     /// notice beside a camera, or the music strip naming its song, reaches
     /// further toward its wider side. A capsule runs its strips end to end.
     var surfaceShift: CGFloat {
+        if showsOmniWMWorkspaceBar { return 0 }
         guard !geometry.floats, !fullscreenCompact, captureControls == nil, !expanded, !dragPlaceholder else { return 0 }
         if let notice { return noticeExpanded ? 0 : geometry.noticeShift(notice.wings(in: geometry)) }
         return namedMusicWings.map { ($0.trailing - $0.leading) / 2 } ?? 0
@@ -1094,6 +1104,16 @@ final class NotchService: ObservableObject {
             running = true
             installObservers()
         }
+        OmniWMWorkspaceService.shared.presentationChanged = { [weak self] in
+            guard let self, self.running, !self.suspended else { return }
+            if OmniWMWorkspaceService.shared.isPresented {
+                self.hoverWork?.cancel(); self.hoverWork = nil
+                if self.expanded || self.peeking { self.collapse() }
+            }
+            self.objectWillChange.send()
+            self.refreshPresentation()
+        }
+        OmniWMWorkspaceService.shared.syncWithPreferences(active: !suspended)
         syncShortcut()
         if !NotchTimerSupport.isEnabled() { NotchTimerService.shared.stop() }
         // A watch keeps reading while the island is away, as on the lock
@@ -1206,6 +1226,8 @@ final class NotchService: ObservableObject {
     }
 
     func stop(restoreCapture: Bool = true) {
+        OmniWMWorkspaceService.shared.presentationChanged = nil
+        OmniWMWorkspaceService.shared.stop()
         preferenceSyncWork?.cancel(); preferenceSyncWork = nil
         hotkey.unregister()
         if shortcutRegistrationFailed { shortcutRegistrationFailed = false }
@@ -1234,6 +1256,7 @@ final class NotchService: ObservableObject {
     }
 
     private func tearDownPresentation() {
+        OmniWMWorkspaceService.shared.stop()
         screenRefreshWork?.cancel(); screenRefreshWork = nil
         nextMascotVisitWork?.cancel(); nextMascotVisitWork = nil
         mascotVisitWork?.cancel(); mascotVisitWork = nil
@@ -1364,7 +1387,7 @@ final class NotchService: ObservableObject {
 
     func open(_ module: NotchModule? = nil, pinned: Bool = false, takeFocus: Bool = true,
               appPanel: Bool = false, metric: MetricDetailKind? = nil, feedback: Bool = true, sections: Bool = false) {
-        guard NotchSupport.isEnabled(), !suspended else { return }
+        guard NotchSupport.isEnabled(), !suspended, !showsOmniWMWorkspaceBar else { return }
         if !running || self.panel == nil { syncWithPreferences() }
         else { refreshModules() }
         guard let panel else { return }
@@ -1503,6 +1526,7 @@ final class NotchService: ObservableObject {
     }
 
     func hover(_ entered: Bool) {
+        if showsOmniWMWorkspaceBar { return }
         guard running, !suspended, !hiddenAtRestInFullscreen else { removeHoverExitMonitors(); return }
         let point = NSEvent.mouseLocation
         let wasInside = inside
@@ -2582,7 +2606,7 @@ final class NotchService: ObservableObject {
             removeScreenEdgeClickMonitors()
             return
         }
-        let open = expanded || peeking || notice != nil || dragPlaceholder || captureControls != nil
+        let open = showsOmniWMWorkspaceBar || expanded || peeking || notice != nil || dragPlaceholder || captureControls != nil
         guard open || (!hiddenAtRestInFullscreen && (geometry.isNotched || geometry.compactSideRoom != nil)) else {
             finishMusicDeparture()
             presentedMusic = nil
@@ -2635,7 +2659,9 @@ final class NotchService: ObservableObject {
         // island may keep its next approach from opening it.
         if windowHost?.containsHover(NSEvent.mouseLocation) != true { hoverState.update(pointerInside: false) }
         let activationRect: CGRect
-        if captureControls != nil {
+        if showsOmniWMWorkspaceBar {
+            activationRect = .zero
+        } else if captureControls != nil {
             activationRect = captureControlsCollapsed ? CGRect(origin: .zero, size: size) : .zero
         } else if notice != nil || dragPlaceholder {
             activationRect = .zero
@@ -3028,7 +3054,7 @@ final class NotchService: ObservableObject {
             // Shown at once where the island just left, so the two trade places.
             mirror.host.present(size: size, geometry: base, animated: !revealing,
                                 transitionContent: !revealing && previous != activity ? .replace : .none)
-            mirror.host.setActivationArea(CGRect(origin: .zero, size: size),
+            mirror.host.setActivationArea(showsOmniWMWorkspaceBar ? .zero : CGRect(origin: .zero, size: size),
                                           title: FeatureStrings.notch(L10n.shared.language).open,
                                           willPress: {}, activate: { [weak self] in self?.bringIsland(to: id) })
             if !mirror.host.panel.isVisible { mirror.host.panel.orderFrontRegardless() }
@@ -3038,6 +3064,9 @@ final class NotchService: ObservableObject {
     /// A copy's closed surface: the strip of what the island shows, drawn
     /// for that display, or the island at rest there.
     private func mirrorSurface(on base: NotchGeometry, activity: NotchCompactActivity?) -> (strip: NotchGeometry, size: CGSize) {
+        if showsOmniWMWorkspaceBar {
+            return (base, OmniWMWorkspaceSupport.size(OmniWMWorkspaceService.shared.monitor(for: base.screen), geometry: base))
+        }
         guard let activity else {
             return (base, base.restingSize(showsContent: !base.floats && (idleContent != .none || mascotShows(on: base))))
         }
