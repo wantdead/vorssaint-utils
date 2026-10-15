@@ -177,8 +177,8 @@ struct OmniWMWorkspaceBarView: View {
     }
 }
 
-/// The strip, and once Option lingers or the pointer rests on it, a row of
-/// workspace cards dropped below it, drawn like the open island's cards.
+/// The strip, and once Option lingers or the pointer rests on it, a short
+/// list below it naming each workspace's apps.
 struct OmniWMWorkspacePanelView: View {
     let geometry: NotchGeometry
     let expanded: Bool
@@ -196,135 +196,113 @@ struct OmniWMWorkspacePanelView: View {
         VStack(spacing: 0) {
             OmniWMWorkspaceBarView(geometry: geometry, reportsHover: false)
             if expanded {
-                cards(OmniWMWorkspacePanelLayout(monitor: monitor, geometry: geometry))
+                list(OmniWMWorkspacePanelLayout(monitor: monitor, geometry: geometry))
                     .padding(.top, OmniWMWorkspacePanelLayout.topGap)
-                    // The cards settle in as the island drops open around them.
-                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -10)))
+                    // The lines settle in as the island drops open around them.
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
             }
         }
         .frame(maxWidth: .infinity, alignment: .top)
         .contentShape(Rectangle())
-        .animation(reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.88), value: expanded)
+        .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.88), value: expanded)
         .onHover { service.hover($0, screen: geometry.screen) }
         .onDisappear { service.hover(false, screen: geometry.screen) }
     }
 
-    private func cards(_ layout: OmniWMWorkspacePanelLayout) -> some View {
-        let count = CGFloat(layout.cards.count)
-        let content = count * OmniWMWorkspacePanelLayout.cardWidth
-            + max(0, count - 1) * OmniWMWorkspacePanelLayout.cardSpacing + NotchLayout.horizontalInset * 2
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: OmniWMWorkspacePanelLayout.cardSpacing) {
-                ForEach(layout.cards) { workspace in
-                    card(workspace, layout: layout)
+    private func list(_ layout: OmniWMWorkspacePanelLayout) -> some View {
+        HStack(alignment: .top, spacing: OmniWMWorkspacePanelLayout.columnSpacing) {
+            ForEach(Array(layout.columns.enumerated()), id: \.offset) { _, column in
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: OmniWMWorkspacePanelLayout.rowSpacing) {
+                        ForEach(column) { workspace in
+                            line(workspace, layout: layout)
+                        }
+                    }
                 }
+                .scrollDisabled(column.count <= OmniWMWorkspacePanelLayout.maximumLines)
+                .frame(width: layout.columnWidth, height: layout.listHeight, alignment: .top)
             }
-            .padding(.horizontal, NotchLayout.horizontalInset)
-            .frame(minWidth: layout.size.width, alignment: .center)
         }
-        .scrollDisabled(content <= layout.size.width)
-        .frame(height: layout.cardHeight)
+        .padding(.horizontal, OmniWMWorkspacePanelLayout.horizontalInset)
+        .frame(width: layout.size.width, alignment: .center)
     }
 
-    private func card(_ workspace: OmniWMWorkspaceBarWorkspace, layout: OmniWMWorkspacePanelLayout) -> some View {
+    private func line(_ workspace: OmniWMWorkspaceBarWorkspace, layout: OmniWMWorkspacePanelLayout) -> some View {
         let active = workspace.id == activeID
-        let rows = OmniWMWorkspaceWindowRow.rows(in: workspace)
-        let shown = Array(rows.prefix(OmniWMWorkspacePanelLayout.maximumRows))
-        let shape = RoundedRectangle(cornerRadius: OmniWMWorkspacePanelLayout.cardRadius, style: .continuous)
-        return VStack(alignment: .leading, spacing: 0) {
-            header(workspace, windows: rows.count, active: active, showLabels: layout.strip.showLabels)
-                .padding(.bottom, 2)
-            if rows.isEmpty {
-                Text("No windows")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        let groups = OmniWMWorkspaceAppGroup.groups(in: workspace)
+        let shown = Array(groups.prefix(OmniWMWorkspacePanelLayout.iconCap))
+        let shape = RoundedRectangle(cornerRadius: OmniWMWorkspacePanelLayout.rowRadius, style: .continuous)
+        let mark = workspace.number.map(String.init) ?? String(workspace.displayName.prefix(1))
+        let names = groups.isEmpty ? "No windows" : OmniWMWorkspacePanelLayout.names(workspace)
+        return HStack(spacing: 9) {
+            Text(mark)
+                .font(.system(size: 10, weight: .bold))
+                .monospacedDigit()
+                .foregroundStyle(active ? .black : .white)
+                .padding(.horizontal, mark.count > 1 ? 4 : 0)
+                .frame(minWidth: 18, minHeight: 18)
+                .background(Capsule().fill(active ? .white : .white.opacity(0.12)))
+            if !shown.isEmpty {
+                HStack(spacing: 4) {
+                    ForEach(shown) { group in
+                        icon(group, workspace: workspace, active: active)
+                    }
+                }
             }
-            ForEach(shown) { row in
-                windowRow(row, workspace: workspace, active: active)
-            }
-            if rows.count > shown.count {
-                Text("+\(rows.count - shown.count) more")
-                    .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.45))
-                    .frame(height: OmniWMWorkspacePanelLayout.overflowHeight)
-            }
+            Text(names)
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(.white.opacity(groups.isEmpty ? 0.4 : active ? 1 : 0.7))
+            Spacer(minLength: 0)
         }
-        .padding(OmniWMWorkspacePanelLayout.cardPadding)
-        .frame(width: OmniWMWorkspacePanelLayout.cardWidth, height: layout.cardHeight, alignment: .topLeading)
-        .background(shape.fill(.white.opacity(active ? 0.11 : 0.06)))
-        .overlay(shape.strokeBorder(.white.opacity(active ? 0.2 : 0.07), lineWidth: 1))
+        .padding(.horizontal, 8)
+        .frame(height: OmniWMWorkspacePanelLayout.rowHeight)
+        .background(shape.fill(.white.opacity(active ? 0.1 : 0)))
         .contentShape(shape)
-        // The card switches workspace; each window row focuses its window.
+        // The line switches workspace; each icon focuses its app.
         .onTapGesture { service.focus(workspace: workspace) }
+        .modifier(OmniWMHoverWash(shape: shape, enabled: !active))
+        .help(workspace.displayName)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Workspace \(workspace.displayName)")
+        .accessibilityLabel("Workspace \(workspace.displayName), \(names)")
         .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { service.focus(workspace: workspace) }
     }
 
-    private func header(_ workspace: OmniWMWorkspaceBarWorkspace, windows: Int, active: Bool,
-                        showLabels: Bool) -> some View {
-        let mark = workspace.number.map(String.init) ?? String(workspace.displayName.prefix(1))
-        let name = workspace.number == nil || (showLabels && workspace.displayName != mark)
-            ? workspace.displayName : nil
-        return HStack(spacing: 7) {
-            Text(mark)
-                .font(.system(size: 11, weight: .bold))
-                .monospacedDigit()
-                .foregroundStyle(active ? .black : .white)
-                .padding(.horizontal, mark.count > 1 ? 5 : 0)
-                .frame(minWidth: 20, minHeight: 20)
-                .background(Capsule().fill(active ? .white : .white.opacity(0.12)))
-            if let name {
-                Text(name).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+    private func icon(_ group: OmniWMWorkspaceAppGroup, workspace: OmniWMWorkspaceBarWorkspace,
+                      active: Bool) -> some View {
+        let size = OmniWMWorkspacePanelLayout.iconSize
+        return Button {
+            service.focus(group: group, in: workspace, cycling: active)
+        } label: {
+            Group {
+                if let image = service.icon(for: group.bundleId) {
+                    Image(nsImage: image).resizable().interpolation(.high)
+                } else {
+                    Image(systemName: "app.dashed").resizable().scaledToFit().foregroundStyle(.white.opacity(0.6))
+                }
             }
-            Spacer(minLength: 4)
-            Text(windows == 1 ? "1 window" : "\(windows) windows")
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(.white.opacity(0.4))
-                .opacity(windows == 0 ? 0 : 1)
+            .frame(width: size, height: size)
+            .contentShape(Rectangle())
         }
-        .frame(height: OmniWMWorkspacePanelLayout.headerHeight)
+        .buttonStyle(NotchButtonStyle(cornerRadius: 4, highlights: false))
+        .help(group.windows.count > 1 ? "\(group.appName), \(group.windows.count) windows" : group.appName)
+        .accessibilityLabel(group.appName)
     }
+}
 
-    private func windowRow(_ row: OmniWMWorkspaceWindowRow, workspace: OmniWMWorkspaceBarWorkspace,
-                           active: Bool) -> some View {
-        Button { service.focus(window: row, in: workspace) } label: {
-            HStack(spacing: 8) {
-                Group {
-                    if let icon = service.icon(for: row.bundleId) {
-                        Image(nsImage: icon).resizable().interpolation(.high)
-                    } else {
-                        Image(systemName: "app.dashed").resizable().scaledToFit().foregroundStyle(.white.opacity(0.6))
-                    }
-                }
-                .frame(width: 22, height: 22)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(row.title ?? row.appName)
-                        .font(.system(size: 12, weight: .semibold))
-                        .lineLimit(1)
-                    if row.title != nil {
-                        Text(row.appName)
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(.white.opacity(0.45))
-                            .lineLimit(1)
-                    }
-                }
-                Spacer(minLength: 0)
-                if row.isFocused {
-                    // The window this workspace brings forward.
-                    Circle().fill(.white.opacity(active ? 0.9 : 0.4)).frame(width: 5, height: 5)
-                }
-            }
-            .padding(.horizontal, 6)
-            .frame(height: OmniWMWorkspacePanelLayout.rowHeight)
-            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-        }
-        .buttonStyle(NotchButtonStyle(cornerRadius: 9, lifts: false))
-        .padding(.horizontal, -6)
-        .help(row.title.map { "\($0) — \(row.appName)" } ?? row.appName)
-        .accessibilityLabel(row.title.map { "\(row.appName), \($0)" } ?? row.appName)
-        .accessibilityAddTraits(row.isFocused ? .isSelected : [])
+/// The light wash a line takes under the pointer.
+private struct OmniWMHoverWash<S: Shape>: ViewModifier {
+    let shape: S
+    let enabled: Bool
+    @State private var hovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .background(shape.fill(.white.opacity(enabled && hovered ? 0.07 : 0)))
+            .onHover { hovered = $0 }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovered)
     }
 }

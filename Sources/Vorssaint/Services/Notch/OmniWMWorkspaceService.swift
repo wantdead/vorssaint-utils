@@ -194,10 +194,6 @@ final class OmniWMWorkspaceService: ObservableObject {
         command(["workspace", "focus-name", workspace.rawName], workspaceID: workspace.id)
     }
 
-    func focus(window: OmniWMWorkspaceWindowRow, in workspace: OmniWMWorkspaceBarWorkspace) {
-        command(["window", "focus", window.id], workspaceID: workspace.id)
-    }
-
     func focus(group: OmniWMWorkspaceAppGroup, in workspace: OmniWMWorkspaceBarWorkspace, cycling: Bool) {
         guard let window = group.target(cycling: cycling) else { return }
         command(["window", "focus", window.id], workspaceID: workspace.id)

@@ -43,9 +43,9 @@ a count of the rest, and the pills split across the camera where both halves
 come out closest in width. Click a pill to switch workspace, or an icon to
 focus that app. A badge counts an app's windows, and repeated clicks in the
 current workspace cycle through them. Keep holding Option for 800 ms, or rest
-the pointer on the strip for 350 ms, and a row of cards opens below it: one
-per workspace that holds windows, plus the current one, listing each window
-by title. Switching with Option+number restarts that wait, so quick switches
+the pointer on the strip for 350 ms, and a list opens below it: one line per
+workspace that holds windows, plus the current one, naming its apps. Four or
+more lines split into two columns, so the panel stays as wide as the strip. Switching with Option+number restarts that wait, so quick switches
 keep the strip alone. The bar stays for 600 ms after release and remains
 while hovered. Rows that overflow scroll horizontally. Holding Option over an open island leaves it
 open. Each display shows its own workspace list, following the island's

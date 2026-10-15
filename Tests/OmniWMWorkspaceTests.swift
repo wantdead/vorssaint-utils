@@ -95,27 +95,40 @@ enum OmniWMWorkspaceTests {
     }
 
     private static func panel(_ suite: TestSuite, geometry: NotchGeometry) {
-        let sample = monitor([
+        let busy = monitor([
             ("1", false, [app("a", "Safari", bundle: "s", windows: [("w1", false), ("w2", true)])]),
             ("2", true, []),
             ("3", false, []),
-            ("4", false, [app("b", "Ghostty", bundle: "g", windows: (1...6).map { ("t\($0)", $0 == 1) })])
+            ("4", false, [app("b", "Mail", bundle: "m", windows: [("w3", false)]),
+                          app("c", "Calendar", bundle: "c", windows: [("w4", false)])]),
+            ("5", false, [app("d", "Zed", bundle: "z", windows: [("w5", false)])]),
+            ("6", false, [app("e", "Gemini", bundle: "g", windows: [("w6", false)])])
         ])
-        let layout = OmniWMWorkspacePanelLayout(monitor: sample, geometry: geometry)
-        suite.expect(layout.cards.map(\.id) == ["1", "2", "4"],
-                     "cards show workspaces with windows and the one on screen, not every empty one")
-        suite.expect(layout.rows == OmniWMWorkspacePanelLayout.maximumRows,
-                     "a busy workspace caps its card at a few windows")
-        suite.expect(layout.size.width >= layout.strip.size.width && layout.size.height > layout.strip.size.height
-                     && layout.size.width <= geometry.screen.width - 24,
+        let layout = OmniWMWorkspacePanelLayout(monitor: busy, geometry: geometry)
+        suite.expect(layout.entries.map(\.id) == ["1", "2", "4", "5", "6"],
+                     "the list names workspaces with windows and the one on screen, not every empty one")
+        suite.expect(layout.columns.map { $0.map(\.id) } == [["1", "2", "4"], ["5", "6"]],
+                     "four or more lines split into two columns, filled top to bottom")
+        suite.expect(layout.size.width >= layout.strip.size.width && layout.size.width <= geometry.screen.width - 24
+                     && layout.size.height > layout.strip.size.height,
                      "the panel grows down from the strip and stays within the display")
-        let rows = OmniWMWorkspaceWindowRow.rows(in: sample!.workspaces[0])
-        suite.expect(rows.map(\.id) == ["w1", "w2"] && rows.allSatisfy { $0.title == "t" },
-                     "each window gets a row with its title")
-        let plain = OmniWMWorkspaceWindowRow.rows(in: monitor([("x", true, [
-            app("c", "Mail", bundle: "m", windows: [])
-        ])])!.workspaces[0])
-        suite.expect(plain.first?.title == nil, "a window titled after its app shows the app name once")
+        let wide = OmniWMWorkspaceLayout(monitor: busy, geometry: geometry).size.width
+        suite.expect(layout.size.width <= max(wide, 2 * OmniWMWorkspacePanelLayout.minimumColumnWidth
+                                               + OmniWMWorkspacePanelLayout.columnSpacing
+                                               + 2 * OmniWMWorkspacePanelLayout.horizontalInset),
+                     "more workspaces make the list taller, not wider")
+        suite.expect(OmniWMWorkspacePanelLayout.names(busy!.workspaces[0]) == "Safari ×2"
+                     && OmniWMWorkspacePanelLayout.names(busy!.workspaces[3]) == "Mail, Calendar",
+                     "a line names its apps once each, counting extra windows")
+        let few = OmniWMWorkspacePanelLayout(monitor: monitor([("1", true, []), ("2", false, [])]), geometry: geometry)
+        suite.expect(few.columns.count == 1 && few.size.height < layout.size.height,
+                     "a short list keeps one column")
+        let many = monitor((1...20).map { ("\($0)", $0 == 1, [app("x\($0)", "X", bundle: "x", windows: [("w\($0)", false)])]) })
+        let capped = OmniWMWorkspacePanelLayout(monitor: many, geometry: geometry)
+        let lines = CGFloat(OmniWMWorkspacePanelLayout.maximumLines)
+        suite.expect(capped.listHeight == lines * OmniWMWorkspacePanelLayout.rowHeight
+                     + (lines - 1) * OmniWMWorkspacePanelLayout.rowSpacing,
+                     "a long list scrolls instead of reaching down the screen")
     }
 
     private static func app(_ id: String, _ name: String, bundle: String?, focused: Bool = false,

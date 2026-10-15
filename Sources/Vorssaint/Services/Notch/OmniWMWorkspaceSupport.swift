@@ -266,61 +266,51 @@ struct OmniWMWorkspaceLayout {
     }
 }
 
-/// One line per window in a panel card.
-struct OmniWMWorkspaceWindowRow: Identifiable {
-    let id: String
-    let appName: String
-    let bundleId: String?
-    let title: String?
-    let isFocused: Bool
-
-    static func rows(in workspace: OmniWMWorkspaceBarWorkspace) -> [OmniWMWorkspaceWindowRow] {
-        workspace.apps.flatMap { app in
-            let windows = app.allWindows.isEmpty
-                ? [OmniWMWorkspaceBarWindow(id: app.id, title: app.appName, isFocused: app.isFocused)]
-                : app.allWindows
-            return windows.map { window in
-                let title = window.title.trimmingCharacters(in: .whitespacesAndNewlines)
-                // A window titled after its app says nothing a second line would.
-                return OmniWMWorkspaceWindowRow(id: window.id, appName: app.appName, bundleId: app.bundleId,
-                                                title: title.isEmpty || title == app.appName ? nil : title,
-                                                isFocused: window.isFocused)
-            }
-        }
-    }
-}
-
-/// The strip with a row of workspace cards hanging below it. Only workspaces
-/// holding windows, and the one on screen, get a card: the strip above
-/// already lists every workspace.
+/// The strip with a short list hanging below it: one line per workspace that
+/// holds windows, plus the one on screen, naming its apps. The strip above
+/// already lists every workspace. Four or more lines split into two columns,
+/// filled top to bottom, so the panel stays as wide as the strip.
 struct OmniWMWorkspacePanelLayout {
     let strip: OmniWMWorkspaceLayout
-    let cards: [OmniWMWorkspaceBarWorkspace]
-    let rows: Int
-    let cardHeight: CGFloat
+    let entries: [OmniWMWorkspaceBarWorkspace]
+    let columns: [[OmniWMWorkspaceBarWorkspace]]
+    let columnWidth: CGFloat
+    let listHeight: CGFloat
     let size: CGSize
-    static let cardWidth: CGFloat = 176
-    static let cardSpacing: CGFloat = 10
-    static let cardRadius: CGFloat = 20
-    static let cardPadding: CGFloat = 10
-    static let headerHeight: CGFloat = 24
-    static let rowHeight: CGFloat = 34
-    static let maximumRows = 4
-    static let overflowHeight: CGFloat = 18
-    static let topGap: CGFloat = 10
+    static let rowHeight: CGFloat = 26
+    static let rowSpacing: CGFloat = 2
+    static let rowRadius: CGFloat = 8
+    static let columnSpacing: CGFloat = 10
+    static let minimumColumnWidth: CGFloat = 220
+    static let horizontalInset: CGFloat = 16
+    static let topGap: CGFloat = 6
+    static let bottomInset: CGFloat = 10
+    /// Lines beyond this scroll inside their column.
+    static let maximumLines = 6
+    static let iconSize: CGFloat = 18
+    static let iconCap = 4
 
     init(monitor: OmniWMWorkspaceBarMonitor?, geometry: NotchGeometry) {
         strip = OmniWMWorkspaceLayout(monitor: monitor, geometry: geometry)
-        cards = (monitor?.workspaces ?? []).filter { $0.isOccupied || $0.isFocused }
-        let counts = cards.map { OmniWMWorkspaceWindowRow.rows(in: $0).count }
-        let most = counts.max() ?? 0
-        rows = max(1, min(most, Self.maximumRows))
-        let overflow = most > Self.maximumRows ? Self.overflowHeight : 0
-        cardHeight = Self.cardPadding * 2 + Self.headerHeight + 2 + CGFloat(rows) * Self.rowHeight + overflow
-        let count = CGFloat(cards.count)
-        let row = count * Self.cardWidth + max(0, count - 1) * Self.cardSpacing + NotchLayout.horizontalInset * 2
+        let listed = (monitor?.workspaces ?? []).filter { $0.isOccupied || $0.isFocused }
+        entries = listed
+        let count = listed.count >= 4 ? 2 : 1
+        let lines = max(1, Int((Double(listed.count) / Double(count)).rounded(.up)))
+        columns = stride(from: 0, to: listed.count, by: lines).map { Array(listed[$0..<min($0 + lines, listed.count)]) }
         let maximum = max(0, geometry.screen.width - 24)
-        let width = min(maximum, max(strip.size.width, row))
-        size = CGSize(width: width, height: geometry.stripHeight + Self.topGap + cardHeight + NotchLayout.bottomInset)
+        let minimum = CGFloat(count) * Self.minimumColumnWidth + CGFloat(count - 1) * Self.columnSpacing
+            + Self.horizontalInset * 2
+        let width = min(maximum, max(strip.size.width, minimum))
+        columnWidth = max(0, (width - Self.horizontalInset * 2 - CGFloat(count - 1) * Self.columnSpacing) / CGFloat(count))
+        let shown = CGFloat(min(lines, Self.maximumLines))
+        listHeight = shown * Self.rowHeight + max(0, shown - 1) * Self.rowSpacing
+        size = CGSize(width: width, height: geometry.stripHeight + Self.topGap + listHeight + Self.bottomInset)
+    }
+
+    /// "Mail, Calendar", or "Safari ×2" for an app with several windows.
+    static func names(_ workspace: OmniWMWorkspaceBarWorkspace) -> String {
+        OmniWMWorkspaceAppGroup.groups(in: workspace)
+            .map { $0.windows.count > 1 ? "\($0.appName) ×\($0.windows.count)" : $0.appName }
+            .joined(separator: ", ")
     }
 }
