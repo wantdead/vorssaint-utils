@@ -42,14 +42,19 @@ connection state. Each workspace is a pill holding up to three app icons and
 a count of the rest, and the pills split across the camera where both halves
 come out closest in width. Click a pill to switch workspace, or an icon to
 focus that app. A badge counts an app's windows, and repeated clicks in the
-current workspace cycle through them. Keep holding Option for 800 ms, or rest
-the pointer on the strip for 350 ms, and a list opens below it: one line per
-workspace that holds windows, plus the current one, naming its apps. Four or
-more lines split into two columns, so the panel stays as wide as the strip. Switching with Option+number restarts that wait, so quick switches
-keep the strip alone. The bar stays for 600 ms after release and remains
-while hovered. Rows that overflow scroll horizontally. Holding Option over an open island leaves it
-open. Each display shows its own workspace list, following the island's
+current workspace cycle through them. The strip stays for 600 ms after
+release and remains while hovered; holding Option never shows more. Rows
+that overflow scroll horizontally. Holding Option over an open island leaves
+it open. Each display shows its own workspace list, following the island's
 existing display selection.
+
+Double-tap Option to open the strip with a list below it: one line per
+workspace that holds windows, plus the current one, naming its apps. Four or
+more lines split into two columns, so the panel stays as wide as the strip.
+A tap only counts when no key or mouse button went down during it, so Option
+typing a character never opens the panel. The panel closes on another Option
+tap, a click inside it, or the pointer leaving after a visit; left untouched,
+it closes after 4 seconds.
 
 Commit local changes before updating:
 

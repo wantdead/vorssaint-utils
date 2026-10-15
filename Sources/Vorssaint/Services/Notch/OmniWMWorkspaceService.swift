@@ -96,7 +96,11 @@ final class OmniWMWorkspaceService: ObservableObject {
         // Option must be the only modifier so existing multi-modifier shortcuts keep working.
         let mask: NSEvent.ModifierFlags = [.option, .command, .control, .shift]
         let held = NSEvent.modifierFlags.intersection(mask) == .option
-        let presented = hold.update(held: held, hovered: !hoveredDisplays.isEmpty, now: now)
+        // Modifier presses are not key downs, so this only sees typing and clicks.
+        let quiet = [CGEventType.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+            .map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }
+            .min() ?? .infinity
+        let presented = hold.update(held: held, hovered: !hoveredDisplays.isEmpty, now: now, lastInput: now - quiet)
         setPresented(presented, expanded: hold.expanded)
     }
 
@@ -155,11 +159,7 @@ final class OmniWMWorkspaceService: ObservableObject {
     }
 
     private func receive(_ payload: OmniWMWorkspaceBarPayload) {
-        let focused = Set(monitors.flatMap(\.workspaces).filter(\.isFocused).map(\.id))
         monitors = payload.monitors
-        if focused != Set(monitors.flatMap(\.workspaces).filter(\.isFocused).map(\.id)) {
-            hold.switched(now: ProcessInfo.processInfo.systemUptime)
-        }
         connection = .connected
         if let pendingWorkspaceID,
            monitors.flatMap(\.workspaces).contains(where: { $0.id == pendingWorkspaceID && $0.isFocused }) {
@@ -201,7 +201,13 @@ final class OmniWMWorkspaceService: ObservableObject {
 
     private func command(_ arguments: [String], workspaceID: String) {
         guard enabled, let executable = Self.executable else { return }
-        pendingWorkspaceID = workspaceID
+        // A click in the panel is the answer it was opened for.
+        if isExpanded {
+            hold.dismiss()
+            setPresented(false, expanded: false)
+        } else {
+            pendingWorkspaceID = workspaceID
+        }
         let child = Process()
         child.executableURL = executable
         child.arguments = arguments

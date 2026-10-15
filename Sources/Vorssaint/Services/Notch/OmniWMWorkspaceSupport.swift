@@ -136,46 +136,87 @@ enum OmniWMWorkspaceSupport {
     }
 }
 
-/// A short Option hold shows the strip; lingering, by holding on or by resting
-/// the pointer on the strip, opens the panel below it.
+/// Holding Option shows the strip, however long the hold. A double tap opens
+/// the strip with the panel below it, which stays until Option is tapped
+/// again, something in it is clicked, or the pointer leaves it after a visit.
+/// Left untouched, it closes after a few seconds.
 struct OmniWMWorkspaceHold {
     static let showDelay: TimeInterval = 0.2
-    static let expandDelay: TimeInterval = 0.8
-    static let hoverDelay: TimeInterval = 0.35
     static let releaseGrace: TimeInterval = 0.6
+    /// The longest press that still counts as a tap.
+    static let tapLimit: TimeInterval = 0.25
+    /// From the first tap's release to the second press.
+    static let doubleTapGap: TimeInterval = 0.35
+    static let panelIdle: TimeInterval = 4
+    static let panelLeaveGrace: TimeInterval = 0.4
     private var pressedAt: TimeInterval?
-    /// Where the hold's linger is measured from: a workspace switch made with
-    /// Option held restarts it, so Option+number never opens the panel.
-    private var lingerFrom: TimeInterval?
     private var releasedAt: TimeInterval?
-    private var hoveredAt: TimeInterval?
+    private var tapReleasedAt: TimeInterval?
+    /// The press that opened the panel is not also a tap that closes it.
+    private var pressOpenedPanel = false
+    private var panelOpenedAt: TimeInterval?
+    private var panelVisited = false
+    private var panelLeftAt: TimeInterval?
     private(set) var presented = false
     private(set) var expanded = false
 
-    mutating func update(held: Bool, hovered: Bool, now: TimeInterval) -> Bool {
+    /// `lastInput` is when a key or mouse button last went down: Option typing
+    /// a character, or an Option-click, is not a tap.
+    mutating func update(held: Bool, hovered: Bool, now: TimeInterval,
+                         lastInput: TimeInterval = -.infinity) -> Bool {
         if held {
-            releasedAt = nil
-            if pressedAt == nil { pressedAt = now; lingerFrom = now }
+            if pressedAt == nil {
+                pressedAt = now
+                releasedAt = nil
+                if !expanded, let tap = tapReleasedAt, now - tap <= Self.doubleTapGap {
+                    open(now)
+                    pressOpenedPanel = true
+                }
+                tapReleasedAt = nil
+            }
             if now - (pressedAt ?? now) >= Self.showDelay { presented = true }
-            if presented, now - (lingerFrom ?? now) >= Self.expandDelay { expanded = true }
-        } else {
+        } else if let pressed = pressedAt {
             pressedAt = nil
-            lingerFrom = nil
-            if releasedAt == nil { releasedAt = now }
-            if !hovered, now - (releasedAt ?? now) >= Self.releaseGrace { presented = false }
+            releasedAt = now
+            let tapped = now - pressed < Self.tapLimit && lastInput < pressed
+            if tapped, !pressOpenedPanel {
+                if expanded { dismiss(); return presented }
+                tapReleasedAt = now
+            }
+            pressOpenedPanel = false
         }
-        if presented, hovered {
-            if hoveredAt == nil { hoveredAt = now }
-            if now - (hoveredAt ?? now) >= Self.hoverDelay { expanded = true }
-        } else {
-            hoveredAt = nil
+        if expanded {
+            if hovered {
+                panelVisited = true
+                panelLeftAt = nil
+            } else if panelVisited {
+                if panelLeftAt == nil { panelLeftAt = now }
+                if now - (panelLeftAt ?? now) >= Self.panelLeaveGrace { dismiss() }
+            } else if pressedAt == nil, let opened = panelOpenedAt,
+                      now - max(opened, releasedAt ?? opened) >= Self.panelIdle {
+                dismiss()
+            }
+        } else if pressedAt == nil, let releasedAt, !hovered, now - releasedAt >= Self.releaseGrace {
+            presented = false
         }
-        if !presented { expanded = false }
         return presented
     }
 
-    mutating func switched(now: TimeInterval) {
-        if lingerFrom != nil, !expanded { lingerFrom = now }
+    mutating func dismiss() {
+        presented = false
+        expanded = false
+        panelOpenedAt = nil
+        panelVisited = false
+        panelLeftAt = nil
+        tapReleasedAt = nil
+    }
+
+    private mutating func open(_ now: TimeInterval) {
+        presented = true
+        expanded = true
+        panelOpenedAt = now
+        panelVisited = false
+        panelLeftAt = nil
     }
 }
 
