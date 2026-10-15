@@ -76,14 +76,14 @@ struct OmniWMWorkspaceBarView: View {
         let groups = OmniWMWorkspaceAppGroup.groups(in: workspace)
         let shown = Array(groups.prefix(OmniWMWorkspaceLayout.iconCap))
         let overflow = groups.count - shown.count
-        let shape = Capsule(style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: layout.cornerRadius, style: .continuous)
         return HStack(spacing: OmniWMWorkspaceLayout.iconSpacing) {
             Text(OmniWMWorkspaceSupport.label(for: workspace, showLabels: layout.showLabels))
                 .font(.system(size: layout.textSize, weight: focused ? .semibold : .medium))
                 .monospacedDigit()
                 .lineLimit(1)
                 .fixedSize()
-                .foregroundStyle(.white.opacity(focused ? 1 : workspace.isOccupied ? 0.75 : 0.4))
+                .foregroundStyle(.white.opacity(focused ? 1 : workspace.isOccupied ? 0.55 : 0.3))
             ForEach(shown) { group in
                 appButton(group, workspace: workspace, focused: focused, layout: layout)
             }
@@ -96,12 +96,15 @@ struct OmniWMWorkspaceBarView: View {
             }
         }
         .frame(width: layout.pillWidth(workspace), height: layout.pillHeight)
+        // Beside a camera a fill on every pill outlines the housing, so the
+        // strip stays plain, as the island's other strips are. Only the pointer
+        // and the workspace on screen get a surface, drawn like its cards.
         .background {
             ZStack {
-                // Empty workspaces recede, so the occupied ones read first.
-                shape.fill(.white.opacity(hovered ? 0.14 : workspace.isOccupied ? 0.08 : 0.04))
+                shape.fill(.white.opacity(hovered && !focused ? 0.07 : 0))
                 if focused {
-                    shape.fill(.white.opacity(0.22))
+                    shape.fill(.white.opacity(0.12))
+                        .overlay(shape.strokeBorder(.white.opacity(0.16), lineWidth: 1))
                         .matchedGeometryEffect(id: "omniwm.focus", in: selection)
                 }
             }

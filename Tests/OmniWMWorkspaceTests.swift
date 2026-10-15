@@ -32,7 +32,7 @@ enum OmniWMWorkspaceTests {
                      && native.pillHeight <= 26 && native.size.height == geometry.stripHeight,
                      "workspace pills use the native camera gap and fit the compact height")
         suite.expect(native.endInset == geometry.compactActivityEdgeInset(boxHeight: native.pillHeight,
-                                                                          radius: native.pillHeight / 2),
+                                                                          radius: native.cornerRadius),
                      "the outer controls clear the same silhouette curve as native island strips")
         let capsule = NotchGeometry(screen: CGRect(x: 0, y: 0, width: 1440, height: 900), safeAreaTop: 0, cameraWidth: 0,
                                     silhouette: .capsule)
@@ -40,6 +40,11 @@ enum OmniWMWorkspaceTests {
         suite.expect(floating.cameraGap == NotchCapsuleLayout.spacing
                      && floating.endInset == NotchCapsuleLayout.side(capsule) + NotchCapsuleLayout.endPadding,
                      "a floating island uses native capsule padding without reserving a nonexistent camera")
+        let inset = (geometry.stripHeight - native.pillHeight) / 2
+        suite.expect(native.cornerRadius < native.pillHeight / 2
+                     && abs(native.cornerRadius - (NotchLayout.surfaceRadius(height: geometry.stripHeight) - inset)) < 0.5,
+                     "beside a camera, pill corners follow the island's own corners")
+        suite.expect(floating.cornerRadius == floating.pillHeight / 2, "a capsule island keeps capsule pills")
         let tiny = NotchGeometry(screen: CGRect(x: 0, y: 0, width: 300, height: 500), safeAreaTop: 0, cameraWidth: 0)
         suite.expect(OmniWMWorkspaceSupport.size(monitor, geometry: tiny).width <= 276,
                      "a long workspace label cannot widen the island past a narrow display")
@@ -121,7 +126,7 @@ enum OmniWMWorkspaceTests {
         suite.expect(crowdedPill.pillWidth(crowded!.workspaces[0]) - threePill.pillWidth(three!.workspaces[0]) < 24,
                      "a pill shows a few icons and counts the rest instead of growing with every app")
         let empty = monitor([("1", false, [])])!.workspaces[0]
-        suite.expect(few.pillWidth(empty) == few.pillHeight, "a lone number is a round pill")
+        suite.expect(few.pillWidth(empty) == few.pillHeight, "a lone number keeps a square-cornered pill, not a sliver")
         let named = OmniWMWorkspaceLayout(monitor: monitor([("Development", true, []), ("Mail", false, [])], labels: true),
                                           geometry: geometry)
         suite.expect(named.size.width > few.size.width,

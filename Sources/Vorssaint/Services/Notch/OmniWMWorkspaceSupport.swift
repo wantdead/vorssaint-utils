@@ -160,6 +160,9 @@ struct OmniWMWorkspaceHold {
 /// carries dead space for the other.
 struct OmniWMWorkspaceLayout {
     let pillHeight: CGFloat
+    /// Concentric with the island's lower corners, so a pill reads as nested
+    /// in the island rather than set on it. A capsule island keeps capsules.
+    let cornerRadius: CGFloat
     let endInset: CGFloat
     let cameraGap: CGFloat
     let wingWidth: CGFloat
@@ -176,14 +179,16 @@ struct OmniWMWorkspaceLayout {
 
     var textSize: CGFloat { min(12, pillHeight - 8) }
     var iconSize: CGFloat { max(11, min(16, pillHeight - 10)) }
-    var cornerRadius: CGFloat { pillHeight / 2 }
 
     init(monitor: OmniWMWorkspaceBarMonitor?, geometry: NotchGeometry) {
         pillHeight = max(18, min(26, geometry.stripBodyHeight - 6))
+        let island = NotchLayout.surfaceRadius(height: geometry.stripHeight)
+        cornerRadius = geometry.floats ? pillHeight / 2
+            : max(6, min(pillHeight / 2, island - (geometry.stripHeight - pillHeight) / 2))
         cameraGap = geometry.isNotched ? geometry.compactActivityCameraGap : NotchCapsuleLayout.spacing
         let outer = geometry.floats
             ? NotchCapsuleLayout.side(geometry) + NotchCapsuleLayout.endPadding
-            : geometry.compactActivityEdgeInset(boxHeight: pillHeight, radius: pillHeight / 2)
+            : geometry.compactActivityEdgeInset(boxHeight: pillHeight, radius: cornerRadius)
         let maximum = max(0, geometry.screen.width - 24)
         endInset = min(outer, max(0, (maximum - cameraGap) / 2))
         showLabels = monitor?.showLabels == true
