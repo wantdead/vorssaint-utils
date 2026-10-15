@@ -36,10 +36,16 @@ open "build/stage.noindex/Vorssaint (Developer).app"
 Enable Dynamic Island, then use **OmniWM workspaces** in its Behavior settings.
 The workspace bar is enabled by default in this fork. Enable OmniWM IPC;
 `omniwmctl` must be inside OmniWM.app or in `/opt/homebrew/bin` or `/usr/local/bin`.
-Hold Option alone for 200 ms to show the bar. The left wing selects workspaces;
-the right wing shows apps in the selected workspace and focuses their windows. The bar stays for 600 ms after release and remains
-while hovered. Long rows scroll horizontally. Each display shows its own
-workspace list, following the island's existing display selection.
+Hold Option alone for 200 ms to show the bar. It appears only while OmniWM is
+connected and reports workspaces for the island's display; Settings shows the
+connection state. Each workspace is a pill holding up to three app icons and
+a count of the rest, and the pills split across the camera where both halves
+come out closest in width. Click a pill to switch workspace, or an icon to
+focus that app. A badge counts an app's windows, and repeated clicks in the
+current workspace cycle through them. The bar stays for 600 ms after release
+and remains while hovered. Rows that overflow scroll horizontally. Holding Option over an open island leaves it
+open. Each display shows its own workspace list, following the island's
+existing display selection.
 
 Commit local changes before updating:
 

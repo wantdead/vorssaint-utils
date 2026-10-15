@@ -8,9 +8,11 @@ final class OmniWMWorkspaceService: ObservableObject {
     static let shared = OmniWMWorkspaceService()
     @Published private(set) var monitors: [OmniWMWorkspaceBarMonitor] = []
     @Published private(set) var isPresented = false
-    @Published private(set) var status = "Connecting to OmniWM…"
+    @Published private(set) var connection = OmniWMConnection.off
     @Published private(set) var pendingWorkspaceID: String?
-    var presentationChanged: (() -> Void)?
+    /// Called with `true` when the strip appears or leaves, and with `false`
+    /// when only its contents changed.
+    var presentationChanged: ((_ presence: Bool) -> Void)?
 
     private var modifierTimer: Timer?
     private var hold = OmniWMWorkspaceHold()
@@ -37,10 +39,8 @@ final class OmniWMWorkspaceService: ObservableObject {
         guard wanted != enabled else { return }
         if !wanted { stop(); return }
         enabled = true
+        connection = .waiting
         connect()
-        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in self?.pollModifier() }
-        RunLoop.main.add(timer, forMode: .common)
-        modifierTimer = timer
     }
 
     func stop() {
@@ -48,14 +48,12 @@ final class OmniWMWorkspaceService: ObservableObject {
         generation = UUID()
         retry?.cancel(); retry = nil
         commandDeadline?.cancel(); commandDeadline = nil
-        modifierTimer?.invalidate(); modifierTimer = nil
-        hold = OmniWMWorkspaceHold()
-        hoveredDisplays.removeAll()
         if let process { Self.terminate(process) }
         process = nil
         monitors = []
         pendingWorkspaceID = nil
-        setPresented(false)
+        connection = .off
+        syncModifierPolling()
     }
 
     func monitor(for frame: CGRect) -> OmniWMWorkspaceBarMonitor? {
@@ -73,6 +71,24 @@ final class OmniWMWorkspaceService: ObservableObject {
         if inside { hoveredDisplays.insert(id) } else { hoveredDisplays.remove(id) }
     }
 
+    /// Option is only watched while there is something to show, so a missing
+    /// or closed OmniWM costs no timer at all.
+    private func syncModifierPolling() {
+        let wanted = enabled && connection == .connected && monitors.contains { !$0.workspaces.isEmpty }
+        if wanted, modifierTimer == nil {
+            let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in self?.pollModifier() }
+            timer.tolerance = 0.01
+            RunLoop.main.add(timer, forMode: .common)
+            modifierTimer = timer
+        } else if !wanted, let timer = modifierTimer {
+            timer.invalidate()
+            modifierTimer = nil
+            hold = OmniWMWorkspaceHold()
+            hoveredDisplays.removeAll()
+            setPresented(false)
+        }
+    }
+
     private func pollModifier() {
         let now = ProcessInfo.processInfo.systemUptime
         // Option must be the only modifier so existing multi-modifier shortcuts keep working.
@@ -84,13 +100,14 @@ final class OmniWMWorkspaceService: ObservableObject {
     private func setPresented(_ value: Bool) {
         guard isPresented != value else { return }
         isPresented = value
-        presentationChanged?()
+        if !value { pendingWorkspaceID = nil }
+        presentationChanged?(true)
     }
 
     private func connect() {
         guard enabled, process == nil else { return }
         guard let executable = Self.executable else {
-            disconnected("OmniWM is not installed")
+            disconnected(.notInstalled)
             return
         }
         let current = generation
@@ -102,7 +119,7 @@ final class OmniWMWorkspaceService: ObservableObject {
         child.standardOutput = pipe
         child.standardError = FileHandle.nullDevice
         do { try child.run() } catch {
-            disconnected(error.localizedDescription)
+            disconnected(.waiting)
             return
         }
         process = child
@@ -128,14 +145,14 @@ final class OmniWMWorkspaceService: ObservableObject {
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.enabled, self.generation == current else { return }
                 self.process = nil
-                self.disconnected("OmniWM disconnected; reconnecting…")
+                self.disconnected(.waiting)
             }
         }
     }
 
     private func receive(_ payload: OmniWMWorkspaceBarPayload) {
         monitors = payload.monitors
-        status = monitors.isEmpty ? "No OmniWM workspaces" : ""
+        connection = .connected
         if let pendingWorkspaceID,
            monitors.flatMap(\.workspaces).contains(where: { $0.id == pendingWorkspaceID && $0.isFocused }) {
             self.pendingWorkspaceID = nil
@@ -147,27 +164,31 @@ final class OmniWMWorkspaceService: ObservableObject {
             image.size = NSSize(width: 48, height: 48)
             icons[id] = image
         }
-        presentationChanged?()
+        syncModifierPolling()
+        presentationChanged?(false)
     }
 
-    private func disconnected(_ message: String) {
+    private func disconnected(_ state: OmniWMConnection) {
         monitors = []
-        status = message
         pendingWorkspaceID = nil
-        presentationChanged?()
+        connection = state
+        syncModifierPolling()
+        presentationChanged?(false)
         retry?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.connect() }
         retry = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+        // Installing OmniWM is rare; a dropped connection usually comes straight back.
+        DispatchQueue.main.asyncAfter(deadline: .now() + (state == .notInstalled ? 10 : 2), execute: work)
     }
 
     func focus(workspace: OmniWMWorkspaceBarWorkspace) {
+        guard !workspace.isFocused || pendingWorkspaceID != nil else { return }
         command(["workspace", "focus-name", workspace.rawName], workspaceID: workspace.id)
     }
 
-    func focus(app: OmniWMWorkspaceBarApp, workspaceID: String) {
-        guard let window = app.allWindows.first(where: \.isFocused) ?? app.allWindows.first else { return }
-        command(["window", "focus", window.id], workspaceID: workspaceID)
+    func focus(group: OmniWMWorkspaceAppGroup, in workspace: OmniWMWorkspaceBarWorkspace, cycling: Bool) {
+        guard let window = group.target(cycling: cycling) else { return }
+        command(["window", "focus", window.id], workspaceID: workspace.id)
     }
 
     private func command(_ arguments: [String], workspaceID: String) {
@@ -183,15 +204,16 @@ final class OmniWMWorkspaceService: ObservableObject {
         child.terminationHandler = { [weak self] child in
             DispatchQueue.main.async {
                 guard let self, self.enabled, self.generation == current else { return }
+                // The highlight returns to where OmniWM really is.
                 if child.terminationStatus != 0 {
                     self.pendingWorkspaceID = nil
-                    self.status = "OmniWM focus failed"
+                    NSSound.beep()
                 }
             }
         }
         do { try child.run() } catch {
             pendingWorkspaceID = nil
-            status = error.localizedDescription
+            NSSound.beep()
             return
         }
         DispatchQueue.global().asyncAfter(deadline: .now() + 3) { Self.terminate(child) }

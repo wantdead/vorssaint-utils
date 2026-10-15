@@ -896,10 +896,14 @@ final class NotchService: ObservableObject {
             capturesAudio: captureControls?.selectedTool.capturesAudio == true)
     }
 
+    /// Only a display OmniWM lays out workspaces on gets the strip.
     var showsOmniWMWorkspaceBar: Bool {
         running && !suspended && !fullscreenCompact && captureControls == nil
             && !expanded && !dragPlaceholder && OmniWMWorkspaceService.shared.isPresented
+            && OmniWMWorkspaceService.shared.monitor(for: geometry.screen)?.workspaces.isEmpty == false
     }
+    /// What the strip last showed, so only its arrival and departure animate.
+    private var omniWMBarShown = false
 
     var surfaceSize: CGSize {
         if showsOmniWMWorkspaceBar {
@@ -1104,14 +1108,18 @@ final class NotchService: ObservableObject {
             running = true
             installObservers()
         }
-        OmniWMWorkspaceService.shared.presentationChanged = { [weak self] in
+        OmniWMWorkspaceService.shared.presentationChanged = { [weak self] presence in
             guard let self, self.running, !self.suspended else { return }
-            if OmniWMWorkspaceService.shared.isPresented {
+            // An open island keeps its page; Option only replaces a peek.
+            if presence, OmniWMWorkspaceService.shared.isPresented, !self.expanded {
                 self.hoverWork?.cancel(); self.hoverWork = nil
-                if self.expanded || self.peeking { self.collapse() }
+                if self.peeking { self.collapse() }
             }
+            let shown = self.showsOmniWMWorkspaceBar
+            let transition: NotchContentTransition = shown == self.omniWMBarShown ? .none : shown ? .reveal : .replace
+            self.omniWMBarShown = shown
             self.objectWillChange.send()
-            self.refreshPresentation()
+            self.refreshPresentation(transitionContent: transition)
         }
         OmniWMWorkspaceService.shared.syncWithPreferences(active: !suspended)
         syncShortcut()

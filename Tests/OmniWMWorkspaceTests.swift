@@ -29,9 +29,10 @@ enum OmniWMWorkspaceTests {
                      && size.height == geometry.stripHeight, "workspace bars retain the camera gap and stay within the display")
         let native = OmniWMWorkspaceLayout(monitor: monitor, geometry: geometry)
         suite.expect(native.cameraGap == geometry.compactActivityCameraGap
-                     && native.controlSide <= 28 && native.size.height == geometry.stripHeight,
-                     "workspace controls use the native camera gap, compact height and control size")
-        suite.expect(native.endInset == geometry.compactActivityEdgeInset(boxHeight: native.controlSide, radius: 9),
+                     && native.pillHeight <= 26 && native.size.height == geometry.stripHeight,
+                     "workspace pills use the native camera gap and fit the compact height")
+        suite.expect(native.endInset == geometry.compactActivityEdgeInset(boxHeight: native.pillHeight,
+                                                                          radius: native.pillHeight / 2),
                      "the outer controls clear the same silhouette curve as native island strips")
         let capsule = NotchGeometry(screen: CGRect(x: 0, y: 0, width: 1440, height: 900), safeAreaTop: 0, cameraWidth: 0,
                                     silhouette: .capsule)
@@ -54,6 +55,80 @@ enum OmniWMWorkspaceTests {
         suite.expect(!hold.update(held: true, hovered: false, now: 2)
                      && !hold.update(held: false, hovered: false, now: 2.1)
                      && !hold.update(held: true, hovered: false, now: 2.2), "separate Option taps never accumulate into a hold")
+        grouping(suite)
+        sizing(suite, geometry: geometry)
+    }
+
+    private static func app(_ id: String, _ name: String, bundle: String?, focused: Bool = false,
+                            windows: [(String, Bool)]) -> String {
+        let list = windows.map { #"{"id":"\#($0.0)","title":"t","isFocused":\#($0.1)}"# }.joined(separator: ",")
+        let bundleField = bundle.map { #""\#($0)""# } ?? "null"
+        return #"{"id":"\#(id)","appName":"\#(name)","bundleId":\#(bundleField),"isFocused":\#(focused),"windowCount":\#(windows.count),"allWindows":[\#(list)]}"#
+    }
+
+    private static func monitor(_ workspaces: [(String, Bool, [String])], labels: Bool = false) -> OmniWMWorkspaceBarMonitor? {
+        let items = workspaces.enumerated().map { index, workspace in
+            #"{"id":"\#(workspace.0)","rawName":"\#(workspace.0)","displayName":"\#(workspace.0)","number":\#(index + 1),"isFocused":\#(workspace.1),"windows":[\#(workspace.2.joined(separator: ","))]}"#
+        }.joined(separator: ",")
+        let json = #"{"ok":true,"result":{"payload":{"interactionMonitorId":null,"monitors":[{"id":"display:1","name":"M","showLabels":\#(labels),"workspaces":[\#(items)]}]}}}"#
+        return OmniWMWorkspaceSupport.decode(Data(json.utf8))?.monitors.first
+    }
+
+    private static func grouping(_ suite: TestSuite) {
+        let workspace = monitor([("one", true, [
+            app("a1", "Safari", bundle: "com.apple.Safari", windows: [("w1", false)]),
+            app("b1", "Terminal", bundle: "com.apple.Terminal", windows: [("w2", false)]),
+            app("a2", "Safari", bundle: "com.apple.Safari", focused: true, windows: [("w3", true)]),
+            app("c1", "Tool", bundle: nil, windows: [])
+        ])])?.workspaces.first
+        let groups = workspace.map(OmniWMWorkspaceAppGroup.groups(in:)) ?? []
+        suite.expect(groups.map(\.appName) == ["Safari", "Terminal", "Tool"],
+                     "each app's windows share one icon, in the order OmniWM lists the apps")
+        let safari = groups.first
+        suite.expect(safari?.windows.map(\.id) == ["w1", "w3"] && safari?.isFocused == true,
+                     "a grouped app keeps every window and its focus")
+        suite.expect(safari?.target(cycling: true)?.id == "w1" && safari?.target(cycling: false)?.id == "w3",
+                     "a repeat click walks to the next window; elsewhere it returns to the focused one")
+        suite.expect(groups.last?.windows.map(\.id) == ["c1"] && groups[1].target(cycling: true)?.id == "w2",
+                     "an app without a window list is still focusable, and one without focus starts at its first window")
+        suite.expect(workspace?.isOccupied == true && monitor([("e", false, [])])?.workspaces.first?.isOccupied == false,
+                     "a workspace reports whether it holds any window")
+    }
+
+    private static func sizing(_ suite: TestSuite, geometry: NotchGeometry) {
+        let few = OmniWMWorkspaceLayout(monitor: monitor([("1", true, []), ("2", false, [])]), geometry: geometry)
+        let many = OmniWMWorkspaceLayout(monitor: monitor((1...8).map { ("\($0)", $0 == 1, []) }), geometry: geometry)
+        suite.expect(few.size.width < many.size.width,
+                     "the strip fits its workspaces instead of reserving room it does not use")
+        suite.expect((many.leading + many.trailing).map(\.id) == (1...8).map { "\($0)" }
+                     && many.leading.count == 4,
+                     "the pills split across the camera in order, evenly when they match in width")
+        let lopsided = monitor([
+            ("1", true, (1...3).map { app("a\($0)", "A\($0)", bundle: "a\($0)", windows: [("wa\($0)", false)]) }),
+            ("2", false, (1...3).map { app("b\($0)", "B\($0)", bundle: "b\($0)", windows: [("wb\($0)", false)]) }),
+            ("3", false, []), ("4", false, []), ("5", false, []), ("6", false, [])
+        ])
+        let balanced = OmniWMWorkspaceLayout(monitor: lopsided, geometry: geometry)
+        let halves = (balanced.rowWidth(balanced.leading), balanced.rowWidth(balanced.trailing))
+        suite.expect(balanced.leading.count < 3 && abs(halves.0 - halves.1) < balanced.pillWidth(lopsided!.workspaces[0]),
+                     "busy pills on one side are balanced by more empty ones on the other")
+        suite.expect(balanced.wingWidth >= max(halves.0, halves.1),
+                     "each wing holds its half of the pills")
+        let crowded = monitor([("1", true, (1...6).map { app("x\($0)", "X\($0)", bundle: "x\($0)", windows: [("w\($0)", false)]) })])
+        let three = monitor([("1", true, (1...3).map { app("x\($0)", "X\($0)", bundle: "x\($0)", windows: [("w\($0)", false)]) })])
+        let crowdedPill = OmniWMWorkspaceLayout(monitor: crowded, geometry: geometry)
+        let threePill = OmniWMWorkspaceLayout(monitor: three, geometry: geometry)
+        suite.expect(crowdedPill.pillWidth(crowded!.workspaces[0]) - threePill.pillWidth(three!.workspaces[0]) < 24,
+                     "a pill shows a few icons and counts the rest instead of growing with every app")
+        let empty = monitor([("1", false, [])])!.workspaces[0]
+        suite.expect(few.pillWidth(empty) == few.pillHeight, "a lone number is a round pill")
+        let named = OmniWMWorkspaceLayout(monitor: monitor([("Development", true, []), ("Mail", false, [])], labels: true),
+                                          geometry: geometry)
+        suite.expect(named.size.width > few.size.width,
+                     "named workspaces widen their pills to fit the name")
+        suite.expect(OmniWMWorkspaceSupport.caption(.notInstalled) != OmniWMWorkspaceSupport.caption(.connected)
+                     && OmniWMWorkspaceSupport.caption(.waiting).contains("IPC"),
+                     "settings say whether OmniWM is missing, unreachable or connected")
     }
 }
 
