@@ -57,6 +57,7 @@ The window switcher offers column limits and clearer app filtering. The screensh
 - Command Bar finds the tools Xcode keeps inside its bundle, such as Simulator, Instruments and Device Hub, and the uninstaller refuses apps that live inside another app.
 - Audio controls no longer crash with microphones that report an invalid volume, such as the Insta360 Link 2C Pro.
 - The island scratchpad's shortcut opens and closes it every time and places the caret while a Vorssaint window is in front.
+- Clipboard, Scratchpad, Quick Launcher and Shelf shortcuts expand the island's capture controls while they show, instead of leaving the island to open by itself once the capture ends.
 
 ### Contributors
 Thanks to @2-Chengs, @AB-boi, @Acronyxxx, @Adridot, @ahmedabdullah-o, @beckhauser, @benjcrich, @capozz03, @carltonking, @chadfidev, @claude, @COMEBACKISREAL, @cprecioso, @DanyRodier, @eioz, @EugeneCarldotme, @gustavoramalho, @Hackmodford, @iancenry, @JeanBaeez, @JoeC-Dev, @juanra, @kit101, @LechTheMitch, @Likheet, @luantedesco, @ManuLorenzzo, @mohammadhprp, @morhaf-ko, @Narangor, @nateships, @ncesar, @oecer, @oskarsss, @PratikPawar1401, @RoccoRakete, @unfilet, @voljumet, @Werkezeugs, @ywu73 and @zhanghk2001.
