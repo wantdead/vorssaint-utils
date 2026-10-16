@@ -97,6 +97,8 @@ struct NotchCalendarStrip: View {
             Color.clear.frame(width: geometry.compactActivityCameraGap)
             // The start or end time fills the side the clock alone left
             // mostly empty; a wing narrowed by the menus keeps just the clock.
+            // Both sides take the title's width, so the clock sits at the
+            // outer end and any room left over stays beside the camera.
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: NotchCalendarSupport.stripClockSpacing) {
                     Self.clock(remaining, ongoing: countdown.ongoing)
@@ -108,7 +110,7 @@ struct NotchCalendarStrip: View {
                 Self.clock(remaining, ongoing: countdown.ongoing)
             }
             .padding(.trailing, inset)
-            .frame(width: geometry.compactActivityWingWidth, alignment: .leading)
+            .frame(width: geometry.compactActivityWingWidth, alignment: .trailing)
         }
     }
 
