@@ -949,10 +949,14 @@ final class NotchService: ObservableObject {
     }
 
     /// How far the island's centre sits right of the camera's. Only a closed
-    /// notice beside a camera, or the music strip naming its song, reaches
-    /// further toward its wider side. A capsule runs its strips end to end.
+    /// notice beside a camera, the music strip naming its song, or OmniWM's
+    /// workspaces reach further toward their wider side. A capsule runs its
+    /// strips end to end.
     var surfaceShift: CGFloat {
-        if showsOmniWMWorkspaceBar { return 0 }
+        if showsOmniWMWorkspaceBar {
+            return OmniWMWorkspaceLayout(monitor: OmniWMWorkspaceService.shared.monitor(for: geometry.screen),
+                                         geometry: geometry).shift
+        }
         guard !geometry.floats, !fullscreenCompact, captureControls == nil, !expanded, !dragPlaceholder else { return 0 }
         if let notice { return noticeExpanded ? 0 : geometry.noticeShift(notice.wings(in: geometry)) }
         return namedMusicWings.map { ($0.trailing - $0.leading) / 2 } ?? 0

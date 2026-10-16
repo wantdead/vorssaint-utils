@@ -221,8 +221,9 @@ struct OmniWMWorkspaceHold {
 }
 
 /// Each workspace is a pill holding its apps' icons. The pills split across
-/// the camera where the two halves come out closest in width, so neither wing
-/// carries dead space for the other.
+/// the camera where the two halves come out closest in width, and each wing is
+/// only as wide as its own pills: the island reaches further toward the wider
+/// half, like a notice, instead of padding the narrower one with dead space.
 struct OmniWMWorkspaceLayout {
     let pillHeight: CGFloat
     /// Concentric with the island's lower corners, so a pill reads as nested
@@ -230,7 +231,10 @@ struct OmniWMWorkspaceLayout {
     let cornerRadius: CGFloat
     let endInset: CGFloat
     let cameraGap: CGFloat
-    let wingWidth: CGFloat
+    let leadingWidth: CGFloat
+    let trailingWidth: CGFloat
+    /// How far the strip's centre sits right of the camera's.
+    let shift: CGFloat
     let size: CGSize
     let leading: [OmniWMWorkspaceBarWorkspace]
     let trailing: [OmniWMWorkspaceBarWorkspace]
@@ -250,7 +254,7 @@ struct OmniWMWorkspaceLayout {
         let island = NotchLayout.surfaceRadius(height: geometry.stripHeight)
         cornerRadius = geometry.floats ? pillHeight / 2
             : max(6, min(pillHeight / 2, island - (geometry.stripHeight - pillHeight) / 2))
-        cameraGap = geometry.isNotched ? geometry.compactActivityCameraGap : NotchCapsuleLayout.spacing
+        cameraGap = geometry.isNotched ? geometry.compactActivityCameraGap : 0
         let outer = geometry.floats
             ? NotchCapsuleLayout.side(geometry) + NotchCapsuleLayout.endPadding
             : geometry.compactActivityEdgeInset(boxHeight: pillHeight, radius: cornerRadius)
@@ -261,7 +265,20 @@ struct OmniWMWorkspaceLayout {
         let height = pillHeight
         let labels = showLabels
         let widths = workspaces.map { Self.pillWidth($0, showLabels: labels, height: height) }
-        // The split point that keeps the wider half narrowest.
+        // Without a physical camera there is nothing to split around: one
+        // centred row.
+        if !geometry.isNotched {
+            leading = workspaces
+            trailing = []
+            let width = min(maximum, Self.rowWidth(widths[...]) + endInset * 2)
+            leadingWidth = max(0, width - endInset * 2)
+            trailingWidth = 0
+            shift = 0
+            size = CGSize(width: width, height: geometry.stripHeight)
+            return
+        }
+        // The split point that keeps the wider half narrowest, so the island
+        // strays as little as it can from the camera.
         var best = (index: 0, width: CGFloat.infinity)
         for index in 0...workspaces.count {
             let width = max(Self.rowWidth(widths[..<index]), Self.rowWidth(widths[index...]))
@@ -269,10 +286,17 @@ struct OmniWMWorkspaceLayout {
         }
         leading = Array(workspaces[..<best.index])
         trailing = Array(workspaces[best.index...])
-        let content = (workspaces.isEmpty ? 0 : best.width) + NotchLayout.compactEdgeGap
-        let width = min(maximum, content * 2 + cameraGap + endInset * 2)
-        wingWidth = max(0, (width - cameraGap - endInset * 2) / 2)
-        size = CGSize(width: width, height: geometry.stripHeight)
+        // An empty or short wing still reaches past the camera, so the island
+        // covers it; capped at half the screen around it, so neither end leaves.
+        let floor = max(NotchLayout.compactEdgeGap, (geometry.cameraWidth - cameraGap) / 2 - endInset)
+        let cap = max(0, (maximum - cameraGap) / 2 - endInset)
+        func wing(_ part: ArraySlice<CGFloat>) -> CGFloat {
+            min(cap, max(floor, Self.rowWidth(part) + NotchLayout.compactEdgeGap))
+        }
+        leadingWidth = wing(widths[..<best.index])
+        trailingWidth = wing(widths[best.index...])
+        shift = (trailingWidth - leadingWidth) / 2
+        size = CGSize(width: leadingWidth + cameraGap + trailingWidth + endInset * 2, height: geometry.stripHeight)
     }
 
     func pillWidth(_ workspace: OmniWMWorkspaceBarWorkspace) -> CGFloat {
@@ -341,11 +365,17 @@ struct OmniWMWorkspacePanelLayout {
         let maximum = max(0, geometry.screen.width - 24)
         let minimum = CGFloat(count) * Self.minimumColumnWidth + CGFloat(count - 1) * Self.columnSpacing
             + Self.horizontalInset * 2
-        let width = min(maximum, max(strip.size.width, minimum))
-        columnWidth = max(0, (width - Self.horizontalInset * 2 - CGFloat(count - 1) * Self.columnSpacing) / CGFloat(count))
         let shown = CGFloat(min(lines, Self.maximumLines))
         listHeight = shown * Self.rowHeight + max(0, shown - 1) * Self.rowSpacing
-        size = CGSize(width: width, height: geometry.stripHeight + Self.topGap + listHeight + Self.bottomInset)
+        let height = geometry.stripHeight + Self.topGap + listHeight + Self.bottomInset
+        // The open island's taller outline has wider shoulders than the strip
+        // alone, so it grows past the strip enough for the end pills to keep
+        // their gap from its sides.
+        let shoulders = geometry.floats ? 0
+            : max(0, NotchLayout.shoulder(height: height) + NotchLayout.compactEdgeGap - strip.endInset) * 2
+        let width = min(maximum, max(strip.size.width + shoulders, minimum))
+        columnWidth = max(0, (width - Self.horizontalInset * 2 - CGFloat(count - 1) * Self.columnSpacing) / CGFloat(count))
+        size = CGSize(width: width, height: height)
     }
 
     /// "Mail, Calendar", or "Safari ×2" for an app with several windows.

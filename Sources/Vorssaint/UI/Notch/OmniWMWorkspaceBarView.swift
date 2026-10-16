@@ -27,13 +27,18 @@ struct OmniWMWorkspaceBarView: View {
     var body: some View {
         let layout = OmniWMWorkspaceLayout(monitor: monitor, geometry: geometry)
         HStack(spacing: 0) {
-            row(layout.leading, layout: layout, alignment: .trailing)
-                .padding(.trailing, NotchLayout.compactEdgeGap)
-                .frame(width: layout.wingWidth, alignment: .trailing)
-            Color.clear.frame(width: layout.cameraGap)
-            row(layout.trailing, layout: layout, alignment: .leading)
-                .padding(.leading, NotchLayout.compactEdgeGap)
-                .frame(width: layout.wingWidth, alignment: .leading)
+            if geometry.isNotched {
+                row(layout.leading, width: layout.leadingWidth, layout: layout, alignment: .trailing)
+                    .padding(.trailing, NotchLayout.compactEdgeGap)
+                    .frame(width: layout.leadingWidth, alignment: .trailing)
+                Color.clear.frame(width: layout.cameraGap)
+                row(layout.trailing, width: layout.trailingWidth, layout: layout, alignment: .leading)
+                    .padding(.leading, NotchLayout.compactEdgeGap)
+                    .frame(width: layout.trailingWidth, alignment: .leading)
+            } else {
+                row(layout.leading, width: layout.leadingWidth, layout: layout, alignment: .center)
+                    .frame(width: layout.leadingWidth)
+            }
         }
         .padding(.horizontal, layout.endInset)
         .frame(width: layout.size.width, height: layout.size.height)
@@ -50,9 +55,9 @@ struct OmniWMWorkspaceBarView: View {
         .accessibilityIdentifier("notch.omniwm.workspaces")
     }
 
-    private func row(_ workspaces: [OmniWMWorkspaceBarWorkspace], layout: OmniWMWorkspaceLayout,
+    private func row(_ workspaces: [OmniWMWorkspaceBarWorkspace], width: CGFloat, layout: OmniWMWorkspaceLayout,
                      alignment: Alignment) -> some View {
-        let room = max(0, layout.wingWidth - NotchLayout.compactEdgeGap)
+        let room = max(0, width - (geometry.isNotched ? NotchLayout.compactEdgeGap : 0))
         return ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: OmniWMWorkspaceLayout.spacing) {
@@ -204,6 +209,9 @@ struct OmniWMWorkspacePanelView: View {
         }
         .frame(maxWidth: .infinity, alignment: .top)
         .contentShape(Rectangle())
+        // The island reaches toward the wider wing; the strip and the list
+        // below it move with it, keeping the camera's gap over the camera.
+        .offset(x: OmniWMWorkspaceLayout(monitor: monitor, geometry: geometry).shift)
         .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.88), value: expanded)
         .onHover { service.hover($0, screen: geometry.screen) }
         .onDisappear { service.hover(false, screen: geometry.screen) }

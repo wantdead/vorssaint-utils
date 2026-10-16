@@ -37,7 +37,7 @@ enum OmniWMWorkspaceTests {
         let capsule = NotchGeometry(screen: CGRect(x: 0, y: 0, width: 1440, height: 900), safeAreaTop: 0, cameraWidth: 0,
                                     silhouette: .capsule)
         let floating = OmniWMWorkspaceLayout(monitor: monitor, geometry: capsule)
-        suite.expect(floating.cameraGap == NotchCapsuleLayout.spacing
+        suite.expect(floating.cameraGap == 0
                      && floating.endInset == NotchCapsuleLayout.side(capsule) + NotchCapsuleLayout.endPadding,
                      "a floating island uses native capsule padding without reserving a nonexistent camera")
         let inset = (geometry.stripHeight - native.pillHeight) / 2
@@ -150,7 +150,13 @@ enum OmniWMWorkspaceTests {
         suite.expect(layout.size.width >= layout.strip.size.width && layout.size.width <= geometry.screen.width - 24
                      && layout.size.height > layout.strip.size.height,
                      "the panel grows down from the strip and stays within the display")
+        // The open outline's side, at the strip's height, against the strip's end pill.
+        let side = (layout.size.width - layout.strip.size.width) / 2 + layout.strip.endInset
+        suite.expect(side >= NotchLayout.shoulder(height: layout.size.height) + NotchLayout.compactEdgeGap,
+                     "the strip's end pills keep their gap from the open island's wider shoulders")
         let wide = OmniWMWorkspaceLayout(monitor: busy, geometry: geometry).size.width
+            + max(0, NotchLayout.shoulder(height: layout.size.height) + NotchLayout.compactEdgeGap
+                  - layout.strip.endInset) * 2
         suite.expect(layout.size.width <= max(wide, 2 * OmniWMWorkspacePanelLayout.minimumColumnWidth
                                                + OmniWMWorkspacePanelLayout.columnSpacing
                                                + 2 * OmniWMWorkspacePanelLayout.horizontalInset),
@@ -219,11 +225,24 @@ enum OmniWMWorkspaceTests {
             ("3", false, []), ("4", false, []), ("5", false, []), ("6", false, [])
         ])
         let balanced = OmniWMWorkspaceLayout(monitor: lopsided, geometry: geometry)
+        let external = NotchGeometry(screen: geometry.screen, safeAreaTop: 0, cameraWidth: 0)
+        let continuous = OmniWMWorkspaceLayout(monitor: lopsided, geometry: external)
+        suite.expect(continuous.trailing.isEmpty && continuous.leading.count == 6,
+                     "without a camera, uneven app counts stay in one centered workspace row")
+        suite.expect(continuous.size.width == continuous.rowWidth(lopsided!.workspaces)
+                     + continuous.endInset * 2,
+                     "a camera-free bar has equal end insets without unused space from balancing wings")
         let halves = (balanced.rowWidth(balanced.leading), balanced.rowWidth(balanced.trailing))
         suite.expect(balanced.leading.count < 3 && abs(halves.0 - halves.1) < balanced.pillWidth(lopsided!.workspaces[0]),
                      "busy pills on one side are balanced by more empty ones on the other")
-        suite.expect(balanced.wingWidth >= max(halves.0, halves.1),
-                     "each wing holds its half of the pills")
+        suite.expect(balanced.leadingWidth == halves.0 + NotchLayout.compactEdgeGap
+                     && balanced.trailingWidth == halves.1 + NotchLayout.compactEdgeGap,
+                     "each wing is as wide as its own half of the pills, with no dead space for the other")
+        suite.expect(balanced.size.width == balanced.leadingWidth + balanced.cameraGap + balanced.trailingWidth
+                     + balanced.endInset * 2
+                     && balanced.shift == (balanced.trailingWidth - balanced.leadingWidth) / 2,
+                     "the strip reaches further toward its wider wing, keeping the camera's gap over the camera")
+        suite.expect(continuous.shift == 0, "a camera-free bar stays centred")
         let crowded = monitor([("1", true, (1...6).map { app("x\($0)", "X\($0)", bundle: "x\($0)", windows: [("w\($0)", false)]) })])
         let three = monitor([("1", true, (1...3).map { app("x\($0)", "X\($0)", bundle: "x\($0)", windows: [("w\($0)", false)]) })])
         let crowdedPill = OmniWMWorkspaceLayout(monitor: crowded, geometry: geometry)
