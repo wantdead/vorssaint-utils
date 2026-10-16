@@ -47,8 +47,11 @@ if (( DEV )); then
     EXECUTABLE="VorssaintDeveloper"
     APP_BUNDLE_ID="com.vorssaint.utils.dev"
     BUILD_VARIANT_FLAGS=(-D VORSSAINT_DEVELOPMENT)
-    APP_OPTIMIZATION_FLAGS=(-Onone)
-    BUILD_CONFIGURATION="debug"
+    # Optimized like release: the developer app runs all day, and at -Onone
+    # its own hot loops, such as the mixer's realtime audio, cost about ten
+    # times the CPU. Incremental rebuilds take about as long either way.
+    APP_OPTIMIZATION_FLAGS=(-O)
+    BUILD_CONFIGURATION="debug, optimized"
 else
     APP_NAME="Vorssaint"
     EXECUTABLE="Vorssaint"
