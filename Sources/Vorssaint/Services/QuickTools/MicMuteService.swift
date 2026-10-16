@@ -12,8 +12,9 @@ import Foundation
 /// applied device by device. Each device uses its own mute switch when it has
 /// one, else its input volume drops to zero and the saved level comes back on
 /// unmute. A device that arrives while muted is muted as it appears, the mute
-/// is re-asserted when the default input changes, and the state survives app
-/// relaunches via the persisted flag. A device this app silenced stays its to
+/// is re-asserted when the default input changes or anything else (another
+/// mute app, a call app, the system on wake) reopens a device's switch or
+/// level, and the state survives app relaunches via the persisted flag. A device this app silenced stays its to
 /// release even while unplugged: it gets its level back when it returns.
 final class MicMuteService: ObservableObject {
     static let shared = MicMuteService()
@@ -23,6 +24,13 @@ final class MicMuteService: ObservableObject {
 
     private let hotkey = QuickToolHotkey(id: 12)
     private var installedListeners: [AudioObjectPropertySelector] = []
+    /// The switch and levels of every microphone the last mute sweep saw.
+    /// Written by anyone else while muted, they reopen the microphone with no
+    /// device or default change to notice it by, and the app went on showing
+    /// a mute that no longer held.
+    private var watchedProperties: Set<WatchedProperty> = []
+    private var installedDeviceListeners: Set<WatchedProperty> = []
+    private var reapplyScheduled = false
     /// Reading or writing a device property can block for as long as the audio
     /// daemon holds the device (a headset connecting, an interface waking),
     /// and that is exactly the moment the listeners fire. Sweeping every
@@ -55,8 +63,19 @@ final class MicMuteService: ObservableObject {
     private static let listenerCallback: AudioObjectPropertyListenerProc = { _, _, _, client in
         guard let client else { return noErr }
         let service = Unmanaged<MicMuteService>.fromOpaque(client).takeUnretainedValue()
-        DispatchQueue.main.async { service.reapplyIfNeeded() }
+        DispatchQueue.main.async { service.scheduleReapply() }
         return noErr
+    }
+
+    /// One sweep per burst: a mute written as a level touches up to three
+    /// elements, and each write is reported back here.
+    private func scheduleReapply() {
+        guard !reapplyScheduled else { return }
+        reapplyScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.reapplyScheduled = false
+            self?.reapplyIfNeeded()
+        }
     }
 
     /// Unretained is safe here and only here: this is a single instance that
@@ -235,6 +254,7 @@ final class MicMuteService: ObservableObject {
         }
         if isMuted != muted { isMuted = muted }
         UserDefaults.standard.set(muted, forKey: DefaultsKey.micMuteActive)
+        watchedProperties = Set(outcome.watched)
         syncListeners()
         guard announce else { return }
         // A partial result keeps the floating confirmation: the whole
@@ -270,6 +290,19 @@ final class MicMuteService: ObservableObject {
         var mutedDevices: [String]
         /// A device this sweep had to reach and could not, next to ones it did.
         var failed = false
+        /// What can reopen the devices a mute sweep saw; empty after an unmute.
+        var watched: [WatchedProperty] = []
+    }
+
+    private struct WatchedProperty: Hashable {
+        let device: AudioDeviceID
+        let selector: AudioObjectPropertySelector
+        let element: AudioObjectPropertyElement
+
+        var address: AudioObjectPropertyAddress {
+            AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioDevicePropertyScopeInput,
+                                       mElement: element)
+        }
     }
 
     /// Runs on `halQueue`. Every CoreAudio call of a sweep happens here.
@@ -285,11 +318,23 @@ final class MicMuteService: ObservableObject {
             return MuteOutcome(applied: !muted, savedVolumes: savedVolumes,
                                savedChannelVolumes: savedChannelVolumes, mutedDevices: mutedDevices ?? [])
         }
-        return muted
-            ? mute(devices, savedVolumes: savedVolumes, savedChannelVolumes: savedChannelVolumes,
-                   mutedDevices: mutedDevices)
-            : unmute(devices, savedVolumes: savedVolumes, savedChannelVolumes: savedChannelVolumes,
-                     mutedDevices: mutedDevices, legacyVolume: legacyVolume)
+        guard muted else {
+            return unmute(devices, savedVolumes: savedVolumes, savedChannelVolumes: savedChannelVolumes,
+                          mutedDevices: mutedDevices, legacyVolume: legacyVolume)
+        }
+        var outcome = mute(devices, savedVolumes: savedVolumes, savedChannelVolumes: savedChannelVolumes,
+                           mutedDevices: mutedDevices)
+        outcome.watched = devices.flatMap { reopeningProperties(of: $0.id) }
+        return outcome
+    }
+
+    /// The device's mute switch and levels, the ones it has.
+    private static func reopeningProperties(of device: AudioDeviceID) -> [WatchedProperty] {
+        ([muteAddress()] + volumeAddresses()).compactMap { address in
+            var address = address
+            guard AudioObjectHasProperty(device, &address) else { return nil }
+            return WatchedProperty(device: device, selector: address.mSelector, element: address.mElement)
+        }
     }
 
     private static func mute(_ devices: [InputDevice],
@@ -584,6 +629,20 @@ final class MicMuteService: ObservableObject {
                 installedListeners.append(selector)
             }
         }
+        for property in watchedProperties.subtracting(installedDeviceListeners) {
+            var address = property.address
+            if AudioObjectAddPropertyListener(property.device, &address, Self.listenerCallback,
+                                              listenerClient) == noErr {
+                installedDeviceListeners.insert(property)
+            }
+        }
+        // A device that left, or an unmute: a listener on a device that is
+        // gone fails to come off, and is forgotten all the same.
+        for property in installedDeviceListeners.subtracting(watchedProperties) {
+            var address = property.address
+            AudioObjectRemovePropertyListener(property.device, &address, Self.listenerCallback, listenerClient)
+            installedDeviceListeners.remove(property)
+        }
     }
 
     private func removeListeners() {
@@ -596,5 +655,10 @@ final class MicMuteService: ObservableObject {
                                               listenerClient)
         }
         installedListeners.removeAll()
+        for property in installedDeviceListeners {
+            var address = property.address
+            AudioObjectRemovePropertyListener(property.device, &address, Self.listenerCallback, listenerClient)
+        }
+        installedDeviceListeners.removeAll()
     }
 }

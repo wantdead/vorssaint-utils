@@ -421,6 +421,19 @@ enum MixerInputVolumeContract {
         m.setInputVolume(0.8)
         DispatchQueue.drain()
         check(MicMuteService.isSilenced(10), "hardware mute switch remains silent after gain gesture")
+        let muteSwitch = HAL.key(10, 0, kAudioDevicePropertyMute)
+        check(HAL.listeners.contains(muteSwitch), "an active mute watches the device's own switch")
+        // Another app opens the switch behind the mute's back.
+        HAL.mute[10] = 0
+        var reopened = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyMute,
+                                                  mScope: kAudioDevicePropertyScopeInput, mElement: 0)
+        _ = MicMuteService.listenerCallback(10, 1, &reopened, MicMuteService.shared.listenerClient)
+        _ = MicMuteService.listenerCallback(10, 1, &reopened, MicMuteService.shared.listenerClient)
+        DispatchQueue.drain()
+        check(HAL.mute[10] == 1 && MicMuteService.shared.isMuted, "a switch reopened elsewhere is muted again")
+        MicMuteService.shared.setMuted(false)
+        DispatchQueue.drain()
+        check(HAL.mute[10] == 0 && !HAL.listeners.contains(muteSwitch), "unmute stops watching the switch")
         m.stop()
         HAL.reset()
         HAL.levels[HAL.key(10)] = 0.5
