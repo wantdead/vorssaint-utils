@@ -173,9 +173,23 @@ final class BoostLookaheadLimiter {
 /// Non-interleaved stereo and wider devices must receive one linked gain;
 /// limiting each buffer independently moves the stereo image. Storage is
 /// allocated with the engine, never in the realtime callback.
+///
+/// The mixer runs this on every routed app for as long as it plays, so the
+/// per-sample work is kept to plain pointer reads: each channel's first
+/// sample and stride are found once per callback rather than by walking the
+/// buffer list on every frame, the delay line is raw memory instead of an
+/// array whose every access is checked, and the state lives in locals until
+/// the callback ends. The per-frame loops are `while` loops comparing
+/// `magnitude` by hand: development builds compile at -Onone, where a
+/// `for … in` range and the generic `max` and `abs` resolve their metadata at
+/// runtime on every iteration, which on this thread is every sample.
 final class BoostLookaheadBufferListLimiter {
     private let channelCapacity: Int
-    private var delay: ContiguousArray<Float>
+    private let delay: UnsafeMutablePointer<Float>
+    /// Where each channel's samples start and how far apart its frames are,
+    /// filled at the top of every callback.
+    private let channelSamples: UnsafeMutablePointer<UnsafeMutablePointer<Float>>
+    private let channelStrides: UnsafeMutablePointer<Int>
     private var position = 0
     private var filledFrames = 0
     private var activeChannels = 0
@@ -187,23 +201,31 @@ final class BoostLookaheadBufferListLimiter {
 
     init(channelCapacity: Int) {
         self.channelCapacity = max(1, channelCapacity)
-        delay = ContiguousArray(repeating: 0,
-                                count: BoostLookaheadLimiter.lookaheadFrames
-                                    * self.channelCapacity)
+        let delayCount = BoostLookaheadLimiter.lookaheadFrames * self.channelCapacity
+        delay = .allocate(capacity: delayCount)
+        delay.initialize(repeating: 0, count: delayCount)
+        channelSamples = .allocate(capacity: self.channelCapacity)
+        channelStrides = .allocate(capacity: self.channelCapacity)
+    }
+
+    deinit {
+        delay.deallocate()
+        channelSamples.deallocate()
+        channelStrides.deallocate()
     }
 
     @discardableResult
     func process(_ buffers: UnsafeMutableAudioBufferListPointer,
                  frames: Int,
                  release: Float) -> Bool {
-        let channels = buffers.reduce(0) { partial, buffer in
-            partial + (buffer.mData == nil ? 0 : Int(buffer.mNumberChannels))
+        var channels = 0
+        for buffer in buffers where buffer.mData != nil {
+            channels += Int(buffer.mNumberChannels)
         }
         guard frames > 0, channels > 0, channels <= channelCapacity else { return false }
+        let lookaheadFrames = BoostLookaheadLimiter.lookaheadFrames
         if channels != activeChannels {
-            delay.withUnsafeMutableBufferPointer {
-                $0.baseAddress?.update(repeating: 0, count: $0.count)
-            }
+            delay.update(repeating: 0, count: lookaheadFrames * channelCapacity)
             position = 0
             filledFrames = 0
             gain = 1
@@ -214,29 +236,45 @@ final class BoostLookaheadBufferListLimiter {
             activeChannels = channels
         }
 
+        var channelIndex = 0
+        for buffer in buffers {
+            let count = Int(buffer.mNumberChannels)
+            guard count > 0,
+                  let samples = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
+            for channel in 0..<count {
+                channelSamples[channelIndex] = samples + channel
+                channelStrides[channelIndex] = count
+                channelIndex += 1
+            }
+        }
+
         let ceiling = BoostLimiter.ceiling
-        for frame in 0..<frames {
+        var position = self.position
+        var filledFrames = self.filledFrames
+        var gain = self.gain
+        var targetGain = self.targetGain
+        var attackFrames = self.attackFrames
+        var attackStep = self.attackStep
+        var holdFrames = self.holdFrames
+        var frame = 0
+        while frame < frames {
             var peak: Float = 0
-            for buffer in buffers {
-                let count = Int(buffer.mNumberChannels)
-                guard count > 0,
-                      let samples = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
-                let base = frame * count
-                for channel in 0..<count {
-                    peak = max(peak, abs(samples[base + channel]))
-                }
+            var channel = 0
+            while channel < channels {
+                let magnitude = channelSamples[channel][frame * channelStrides[channel]].magnitude
+                if magnitude > peak { peak = magnitude }
+                channel += 1
             }
 
             let requiredGain = peak > ceiling ? ceiling / peak : 1
             let isOverCeiling = requiredGain < 1
             if requiredGain < targetGain {
                 targetGain = requiredGain
-                let nextStep = (targetGain - gain)
-                    / Float(BoostLookaheadLimiter.lookaheadFrames)
+                let nextStep = (targetGain - gain) / Float(lookaheadFrames)
                 attackStep = attackFrames > 0 ? min(attackStep, nextStep) : nextStep
-                attackFrames = BoostLookaheadLimiter.lookaheadFrames
+                attackFrames = lookaheadFrames
             }
-            if isOverCeiling { holdFrames = BoostLookaheadLimiter.lookaheadFrames }
+            if isOverCeiling { holdFrames = lookaheadFrames }
 
             if attackFrames > 0 {
                 gain += attackStep
@@ -252,25 +290,28 @@ final class BoostLookaheadBufferListLimiter {
                 targetGain = gain
             }
 
-            let delayedBase = position * channelCapacity
-            var channelIndex = 0
-            for buffer in buffers {
-                let count = Int(buffer.mNumberChannels)
-                guard count > 0,
-                      let samples = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
-                let base = frame * count
-                for channel in 0..<count {
-                    let delayed = filledFrames >= BoostLookaheadLimiter.lookaheadFrames
-                        ? delay[delayedBase + channelIndex] : 0
-                    delay[delayedBase + channelIndex] = samples[base + channel]
-                    samples[base + channel] = delayed * gain
-                    channelIndex += 1
-                }
+            let delayed = delay + position * channelCapacity
+            let delayIsFull = filledFrames >= lookaheadFrames
+            channel = 0
+            while channel < channels {
+                let sample = channelSamples[channel] + frame * channelStrides[channel]
+                let output = delayIsFull ? delayed[channel] : 0
+                delayed[channel] = sample.pointee
+                sample.pointee = output * gain
+                channel += 1
             }
             position += 1
-            if position == BoostLookaheadLimiter.lookaheadFrames { position = 0 }
-            if filledFrames < BoostLookaheadLimiter.lookaheadFrames { filledFrames += 1 }
+            if position == lookaheadFrames { position = 0 }
+            if filledFrames < lookaheadFrames { filledFrames += 1 }
+            frame += 1
         }
+        self.position = position
+        self.filledFrames = filledFrames
+        self.gain = gain
+        self.targetGain = targetGain
+        self.attackFrames = attackFrames
+        self.attackStep = attackStep
+        self.holdFrames = holdFrames
         return true
     }
 }
