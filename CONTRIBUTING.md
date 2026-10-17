@@ -76,7 +76,12 @@ Developer and install builds automatically try to create a stable local signing
 identity when none is available. You can also run `./Tools/setup-signing.sh`.
 Keep that identity across rebuilds: ad-hoc signatures change with the binary and
 can invalidate macOS permission grants. Check the build output for signing
-failures. For stale grants, see [troubleshooting](docs/TROUBLESHOOTING.md#resetting-permissions).
+failures.
+
+The identity's keychain stays locked between builds, so other software cannot
+sign as the Developer app and inherit its permissions. Each build that signs
+with it asks once for access to the keychain's password; choose Allow, not
+Always Allow. For stale grants, see [troubleshooting](docs/TROUBLESHOOTING.md#resetting-permissions).
 
 Official releases use Developer ID signing and notarization through the protected
 release workflow. Local signing does not produce an official release.

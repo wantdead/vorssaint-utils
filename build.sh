@@ -18,6 +18,7 @@ STAGE_TMP=""
 cleanup() {
     [[ -n "$ICON_TMP" ]] && rm -rf "$ICON_TMP"
     [[ -n "$STAGE_TMP" ]] && rm -rf "$STAGE_TMP"
+    (( SIGNING_KEYCHAIN_OWNED )) && security lock-keychain "$SIGNING_KEYCHAIN" 2>/dev/null
     return 0
 }
 trap cleanup EXIT
@@ -76,21 +77,41 @@ developer_id_identity() {
         | sed -E 's/.*"(.*)".*/\1/' || true
 }
 
-# A find-identity listing also names certificates codesign then rejects (an
-# expired one fails the build with errSecInternalComponent), and -v excludes
-# every self-signed one; ask codesign itself with a throwaway copy of /bin/echo.
+SIGNING_KEYCHAIN="$HOME/Library/Keychains/vorssaint-signing.keychain-db"
+SIGNING_PASSWORD_SERVICE="Vorssaint signing keychain"
+SIGNING_PASSWORD_ACCOUNT="vorssaint-signing"
+SIGNING_KEYCHAIN_OWNED=0
+
+# Whether the local identity is set up, answered without unlocking anything.
+# setup-signing.sh stores the keychain's password only once codesign has
+# signed with the identity, or once it has moved an earlier working keychain
+# off the fixed password, so a stored password stands for a usable identity.
 legacy_identity_installed() {
-    local probe signed=1
-    # A locked keychain still lists its identities but cannot sign with them,
-    # and this one is locked after every reboot; unlock it before asking.
-    security unlock-keychain -p vorssaint-signing \
-        "$HOME/Library/Keychains/vorssaint-signing.keychain-db" 2>/dev/null || true
-    probe="$(mktemp)"
-    cp /bin/echo "$probe"
-    /usr/bin/codesign --force --strip-disallowed-xattrs --sign "$LEGACY_IDENTITY" "$probe" \
-        >/dev/null 2>&1 && signed=0
-    rm -f "$probe"
-    return $signed
+    [[ -f "$SIGNING_KEYCHAIN" ]] && security find-generic-password \
+        -s "$SIGNING_PASSWORD_SERVICE" -a "$SIGNING_PASSWORD_ACCOUNT" >/dev/null 2>&1
+}
+
+# The signing keychain stays locked between builds, so nothing else can sign
+# as the Developer app and inherit its permissions. Reading the password asks
+# the person once per build; cleanup locks the keychain again. An install's
+# child build inherits the open keychain instead of asking a second time.
+# The password goes to security(1) on standard input, never as an argument
+# other processes could read.
+unlock_signing_keychain() {
+    [[ "${VORSSAINT_SIGNING_KEYCHAIN_OPEN:-0}" == "1" ]] && return 0
+    local password
+    password="$(security find-generic-password -s "$SIGNING_PASSWORD_SERVICE" \
+        -a "$SIGNING_PASSWORD_ACCOUNT" -w 2>/dev/null)" || {
+        echo "✗ The signing keychain stays locked: its password was not released." >&2
+        exit 1
+    }
+    print -r -- "unlock-keychain -p $password \"$SIGNING_KEYCHAIN\"" \
+        | security -i >/dev/null 2>&1 || {
+        echo "✗ The signing keychain did not unlock with its stored password." >&2
+        exit 1
+    }
+    SIGNING_KEYCHAIN_OWNED=1
+    export VORSSAINT_SIGNING_KEYCHAIN_OPEN=1
 }
 
 # Any build that lands in /Applications needs a stable signature, not just the
@@ -104,7 +125,7 @@ legacy_identity_installed() {
 # this off CI, where neither ci.yml nor release.yml passes --install.
 if (( DEV || INSTALL )) && [[ -z "$(developer_id_identity)" ]] \
     && ! legacy_identity_installed; then
-    echo "▸ No signing identity installed; creating the stable local one…"
+    echo "▸ Setting up the stable local signing identity…"
     if ! ./Tools/setup-signing.sh; then
         echo "  ⚠ Tools/setup-signing.sh failed; signing ad-hoc instead." >&2
         echo "    Accessibility and Screen Recording grants will not survive rebuilds:" >&2
@@ -169,11 +190,13 @@ finalize_installed_bundle_after_child() {
         codesign_with_timestamp_retry --force --strip-disallowed-xattrs --options runtime --timestamp \
             --entitlements "$ENTITLEMENTS" --sign "$devid" "$bundle"
     elif legacy_identity_installed; then
+        unlock_signing_keychain
         [[ -f "$helper" ]] && /usr/bin/codesign --force --strip-disallowed-xattrs \
-            --identifier "$FAN_HELPER_ID" --sign "$LEGACY_IDENTITY" "$helper"
+            --options runtime --identifier "$FAN_HELPER_ID" --sign "$LEGACY_IDENTITY" "$helper"
         [[ -f "$adapter" ]] && /usr/bin/codesign --force --strip-disallowed-xattrs \
-            --identifier "$NOW_PLAYING_ADAPTER_ID" --sign "$LEGACY_IDENTITY" "$adapter"
-        /usr/bin/codesign --force --strip-disallowed-xattrs --sign "$LEGACY_IDENTITY" "$bundle"
+            --options runtime --identifier "$NOW_PLAYING_ADAPTER_ID" --sign "$LEGACY_IDENTITY" "$adapter"
+        /usr/bin/codesign --force --strip-disallowed-xattrs --options runtime \
+            --entitlements "$ENTITLEMENTS" --sign "$LEGACY_IDENTITY" "$bundle"
     else
         [[ -f "$helper" ]] && /usr/bin/codesign --force --strip-disallowed-xattrs \
             --identifier "$FAN_HELPER_ID" --sign - "$helper"
@@ -188,6 +211,11 @@ finalize_installed_bundle_after_child() {
 }
 
 if (( INSTALL && ! TEST )) && [[ "${VORSSAINT_INSTALL_CHILD:-0}" != "1" ]]; then
+    # Both the child's signature and the final one below use the keychain:
+    # open it here so the person is asked once, and lock it when this ends.
+    if [[ -z "$(developer_id_identity)" ]] && legacy_identity_installed; then
+        unlock_signing_keychain
+    fi
     VORSSAINT_INSTALL_CHILD=1 "$0" "$@"
     child_status=$?
     if (( child_status != 0 )); then
@@ -739,7 +767,8 @@ codesign_app() {
         codesign_with_timestamp_retry --force --strip-disallowed-xattrs --options runtime --timestamp \
             --entitlements "$ENTITLEMENTS" --sign "$DEVID" "$target"
     elif legacy_identity_installed; then
-        codesign --force --strip-disallowed-xattrs --sign "$LEGACY_IDENTITY" "$target"
+        codesign --force --strip-disallowed-xattrs --options runtime \
+            --entitlements "$ENTITLEMENTS" --sign "$LEGACY_IDENTITY" "$target"
     else
         codesign --force --strip-disallowed-xattrs --sign - "$target"
     fi
@@ -751,7 +780,7 @@ codesign_fan_helper() {
         codesign_with_timestamp_retry --force --strip-disallowed-xattrs --options runtime --timestamp \
             --identifier "$FAN_HELPER_ID" --sign "$DEVID" "$target"
     elif legacy_identity_installed; then
-        codesign --force --strip-disallowed-xattrs --identifier "$FAN_HELPER_ID" \
+        codesign --force --strip-disallowed-xattrs --options runtime --identifier "$FAN_HELPER_ID" \
             --sign "$LEGACY_IDENTITY" "$target"
     else
         codesign --force --strip-disallowed-xattrs --identifier "$FAN_HELPER_ID" --sign - "$target"
@@ -764,7 +793,7 @@ codesign_now_playing_adapter() {
         codesign_with_timestamp_retry --force --strip-disallowed-xattrs --options runtime --timestamp \
             --identifier "$NOW_PLAYING_ADAPTER_ID" --sign "$DEVID" "$target"
     elif legacy_identity_installed; then
-        codesign --force --strip-disallowed-xattrs --identifier "$NOW_PLAYING_ADAPTER_ID" \
+        codesign --force --strip-disallowed-xattrs --options runtime --identifier "$NOW_PLAYING_ADAPTER_ID" \
             --sign "$LEGACY_IDENTITY" "$target"
     else
         codesign --force --strip-disallowed-xattrs --identifier "$NOW_PLAYING_ADAPTER_ID" --sign - "$target"
@@ -781,6 +810,7 @@ sign_bundle() {
         echo "  signing with Developer ID (hardened runtime): $DEVID"
     elif legacy_identity_installed; then
         echo "  signing with legacy self-signed identity: $LEGACY_IDENTITY"
+        unlock_signing_keychain
     else
         echo "  signing ad-hoc (no identity installed — run Tools/setup-signing.sh)"
     fi
