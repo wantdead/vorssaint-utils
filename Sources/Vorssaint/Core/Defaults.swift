@@ -1511,6 +1511,7 @@ enum Defaults {
         DefaultsKey.notchLockScreen: false,
         DefaultsKey.notchLockSounds: false,
         DefaultsKey.notchMascotEnabled: false,
+        OmniWMWorkspaceSupport.scaleKey: 1.0,
         DefaultsKey.notchMascotVisits: true,
         DefaultsKey.notchMascotReactions: true,
         DefaultsKey.notchMascotStyle: NotchMascotStyle.minimal.rawValue,

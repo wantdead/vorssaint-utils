@@ -378,6 +378,10 @@ final class FeatureRuntime: ObservableObject {
         .notchMascot: {
             if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
         },
+        .notchOmniWM: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { OmniWMWorkspaceService.shared.stop() }
+        },
         .scratchpad: { ScratchpadService.shared.syncWithPreferences() },
         .commandBar: { CommandBarService.shared.syncWithPreferences() },
         .cleaner: {

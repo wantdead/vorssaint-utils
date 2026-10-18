@@ -216,6 +216,28 @@ enum OmniWMWorkspaceTests {
         let many = OmniWMWorkspaceLayout(monitor: monitor((1...8).map { ("\($0)", $0 == 1, []) }), geometry: geometry)
         suite.expect(few.size.width < many.size.width,
                      "the strip fits its workspaces instead of reserving room it does not use")
+        let pair = monitor([("1", true, []), ("2", false, [])])
+        let small = OmniWMWorkspaceLayout(monitor: pair, geometry: geometry, scale: 0.7)
+        let large = OmniWMWorkspaceLayout(monitor: pair, geometry: geometry, scale: 1.5)
+        suite.expect(small.pillHeight < few.pillHeight && few.pillHeight < large.pillHeight
+                     && small.iconSize < few.iconSize && few.iconSize < large.iconSize
+                     && small.textSize < few.textSize && few.textSize < large.textSize,
+                     "the size slider scales the pills, their icons and their text together")
+        suite.expect(small.size.height == geometry.stripHeight && few.size.height == geometry.stripHeight
+                     && large.size.height > geometry.stripHeight
+                     && large.size.height - geometry.stripHeight == large.pillHeight - few.pillHeight,
+                     "a smaller strip keeps the island's height and a larger one grows it by the extra")
+        suite.expect(small.rowWidth(pair!.workspaces) < few.rowWidth(pair!.workspaces)
+                     && few.rowWidth(pair!.workspaces) < large.rowWidth(pair!.workspaces),
+                     "the pills' widths follow the size")
+        let listed = OmniWMWorkspacePanelLayout(monitor: pair, geometry: geometry, scale: 1)
+        let listedLarge = OmniWMWorkspacePanelLayout(monitor: pair, geometry: geometry, scale: 1.5)
+        suite.expect(listedLarge.rowHeight > listed.rowHeight && listedLarge.iconSize > listed.iconSize
+                     && listedLarge.size.height > listed.size.height,
+                     "the list below the strip grows with the slider")
+        suite.expect(OmniWMWorkspaceSupport.clamped(9) == 1.5 && OmniWMWorkspaceSupport.clamped(0.1) == 0.7
+                     && OmniWMWorkspaceSupport.clamped(1) == 1,
+                     "a saved size outside the slider's range is brought back into it")
         suite.expect((many.leading + many.trailing).map(\.id) == (1...8).map { "\($0)" }
                      && many.leading.count == 4,
                      "the pills split across the camera in order, evenly when they match in width")

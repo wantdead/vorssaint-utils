@@ -5,11 +5,9 @@ import SwiftUI
 import EventKit
 
 struct NotchSettings: View {
-    @AppStorage(OmniWMWorkspaceSupport.preferenceKey) private var omniWMEnabled = true
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var features = FeatureRuntime.shared
     @ObservedObject private var permissions = Permissions.shared
-    @ObservedObject private var omniWM = OmniWMWorkspaceService.shared
     @ObservedObject private var notch = NotchService.shared
     @ObservedObject private var router = SettingsRouter.shared
     @AppStorage(DefaultsKey.notchGesturesEnabled) private var gesturesEnabled = true
@@ -638,10 +636,6 @@ struct NotchSettings: View {
                     hoverDelayControl
                     if hoverExpand { closeDelayControl }
                 }
-                switchRow("rectangle.3.group", "OmniWM workspaces",
-                          caption: OmniWMWorkspaceSupport.caption(omniWMEnabled ? omniWM.connection : .off),
-                          isOn: $omniWMEnabled)
-                    .onChange(of: omniWMEnabled) { _, _ in notch.syncWithPreferences() }
                 switchRow("keyboard", l10n.s.quickToolShortcutToggle, isOn: $shortcutEnabled)
                 if shortcutEnabled {
                     ShortcutPreferenceRow(role: .notch) {

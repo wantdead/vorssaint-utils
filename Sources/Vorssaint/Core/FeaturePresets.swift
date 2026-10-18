@@ -120,6 +120,9 @@ extension AppFeature {
                 UserDefaults.standard.data(forKey: DefaultsKey.radialMenuProfiles))
                 ? .mouse : .idle
         case .notchNotifications, .notchGestures, .notchTimer, .notchQueue, .notchDownloads: return .idle
+        // One local socket to OmniWM, and a poll of the modifier keys that
+        // runs only while a workspace strip could be asked for.
+        case .notchOmniWM: return .idle
         // It reads only while something is being watched, and stops on its own.
         case .notchWatch: return .idle
         // A blink every few seconds and a visit every few minutes, both

@@ -10,6 +10,7 @@ struct OmniWMWorkspaceBarView: View {
     /// Off inside the panel, which reports the pointer for the whole surface.
     var reportsHover = true
     @ObservedObject private var service = OmniWMWorkspaceService.shared
+    @AppStorage(OmniWMWorkspaceSupport.scaleKey) private var scale = 1.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var selection
     @State private var hoveredID: String?
@@ -25,7 +26,8 @@ struct OmniWMWorkspaceBarView: View {
     private var hoverMotion: Animation? { reduceMotion ? nil : .easeOut(duration: 0.12) }
 
     var body: some View {
-        let layout = OmniWMWorkspaceLayout(monitor: monitor, geometry: geometry)
+        let layout = OmniWMWorkspaceLayout(monitor: monitor, geometry: geometry,
+                                           scale: OmniWMWorkspaceSupport.clamped(scale))
         HStack(spacing: 0) {
             if geometry.isNotched {
                 row(layout.leading, width: layout.leadingWidth, layout: layout, alignment: .trailing)
@@ -96,7 +98,7 @@ struct OmniWMWorkspaceBarView: View {
             }
             if overflow > 0 {
                 Text("+\(overflow)")
-                    .font(.system(size: OmniWMWorkspaceLayout.overflowSize, weight: .semibold))
+                    .font(.system(size: layout.overflowTextSize, weight: .semibold))
                     .monospacedDigit()
                     .fixedSize()
                     .foregroundStyle(.white.opacity(0.55))
@@ -153,7 +155,7 @@ struct OmniWMWorkspaceBarView: View {
             // The window OmniWM would bring forward stands out from its neighbours.
             .opacity(group.isFocused && focused ? 1 : focused ? 0.85 : 0.7)
             .overlay(alignment: .bottomTrailing) {
-                if group.windows.count > 1 { badge(group.windows.count).offset(x: 4, y: 3) }
+                if group.windows.count > 1 { badge(group.windows.count, scale: layout.scale).offset(x: 4 * layout.scale, y: 3 * layout.scale) }
             }
             .contentShape(Rectangle())
         }
@@ -163,13 +165,13 @@ struct OmniWMWorkspaceBarView: View {
         .accessibilityAddTraits(group.isFocused ? .isSelected : [])
     }
 
-    private func badge(_ count: Int) -> some View {
+    private func badge(_ count: Int, scale: CGFloat) -> some View {
         Text(count > 9 ? "9+" : "\(count)")
-            .font(.system(size: 7, weight: .bold, design: .rounded))
+            .font(.system(size: 7 * scale, weight: .bold, design: .rounded))
             .monospacedDigit()
             .foregroundStyle(.white)
             .padding(.horizontal, 2)
-            .frame(minWidth: 9, minHeight: 9)
+            .frame(minWidth: 9 * scale, minHeight: 9 * scale)
             .background(Capsule().fill(Color(white: 0.34)))
             // A black rim parts the badge from the icon beneath it.
             .padding(1)
@@ -188,9 +190,11 @@ struct OmniWMWorkspacePanelView: View {
     let geometry: NotchGeometry
     let expanded: Bool
     @ObservedObject private var service = OmniWMWorkspaceService.shared
+    @AppStorage(OmniWMWorkspaceSupport.scaleKey) private var scale = 1.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var monitor: OmniWMWorkspaceBarMonitor? { service.monitor(for: geometry.screen) }
+    private var factor: CGFloat { OmniWMWorkspaceSupport.clamped(scale) }
     private var activeID: String? {
         if let pending = service.pendingWorkspaceID,
            monitor?.workspaces.contains(where: { $0.id == pending }) == true { return pending }
@@ -201,7 +205,7 @@ struct OmniWMWorkspacePanelView: View {
         VStack(spacing: 0) {
             OmniWMWorkspaceBarView(geometry: geometry, reportsHover: false)
             if expanded {
-                list(OmniWMWorkspacePanelLayout(monitor: monitor, geometry: geometry))
+                list(OmniWMWorkspacePanelLayout(monitor: monitor, geometry: geometry, scale: factor))
                     .padding(.top, OmniWMWorkspacePanelLayout.topGap)
                     // The lines settle in as the island drops open around them.
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)))
@@ -211,7 +215,7 @@ struct OmniWMWorkspacePanelView: View {
         .contentShape(Rectangle())
         // The island reaches toward the wider wing; the strip and the list
         // below it move with it, keeping the camera's gap over the camera.
-        .offset(x: OmniWMWorkspaceLayout(monitor: monitor, geometry: geometry).shift)
+        .offset(x: OmniWMWorkspaceLayout(monitor: monitor, geometry: geometry, scale: factor).shift)
         .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.88), value: expanded)
         .onHover { service.hover($0, screen: geometry.screen) }
         .onDisappear { service.hover(false, screen: geometry.screen) }
@@ -244,28 +248,28 @@ struct OmniWMWorkspacePanelView: View {
         let names = groups.isEmpty ? "No windows" : OmniWMWorkspacePanelLayout.names(workspace)
         return HStack(spacing: 9) {
             Text(mark)
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: layout.markTextSize, weight: .bold))
                 .monospacedDigit()
                 .foregroundStyle(active ? .black : .white)
                 .padding(.horizontal, mark.count > 1 ? 4 : 0)
-                .frame(minWidth: 18, minHeight: 18)
+                .frame(minWidth: layout.markSize, minHeight: layout.markSize)
                 .background(Capsule().fill(active ? .white : .white.opacity(0.12)))
             if !shown.isEmpty {
                 HStack(spacing: 4) {
                     ForEach(shown) { group in
-                        icon(group, workspace: workspace, active: active)
+                        icon(group, workspace: workspace, active: active, size: layout.iconSize)
                     }
                 }
             }
             Text(names)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: layout.textSize, weight: .medium))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .foregroundStyle(.white.opacity(groups.isEmpty ? 0.4 : active ? 1 : 0.7))
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 8)
-        .frame(height: OmniWMWorkspacePanelLayout.rowHeight)
+        .frame(height: layout.rowHeight)
         .background(shape.fill(.white.opacity(active ? 0.1 : 0)))
         .contentShape(shape)
         // The line switches workspace; each icon focuses its app.
@@ -279,9 +283,8 @@ struct OmniWMWorkspacePanelView: View {
     }
 
     private func icon(_ group: OmniWMWorkspaceAppGroup, workspace: OmniWMWorkspaceBarWorkspace,
-                      active: Bool) -> some View {
-        let size = OmniWMWorkspacePanelLayout.iconSize
-        return Button {
+                      active: Bool, size: CGFloat) -> some View {
+        Button {
             service.focus(group: group, in: workspace, cycling: active)
         } label: {
             Group {

@@ -37,12 +37,18 @@ final class OmniWMWorkspaceService: ObservableObject {
     }
 
     func syncWithPreferences(active: Bool) {
-        let wanted = active && (UserDefaults.standard.object(forKey: OmniWMWorkspaceSupport.preferenceKey) as? Bool ?? true)
+        let wanted = active && OmniWMWorkspaceSupport.isEnabled()
         guard wanted != enabled else { return }
         if !wanted { stop(); return }
         enabled = true
         connection = .waiting
         connect()
+    }
+
+    /// The size slider moved: the island redraws at the new size.
+    func scaleChanged() {
+        guard enabled else { return }
+        presentationChanged?(false)
     }
 
     func stop() {

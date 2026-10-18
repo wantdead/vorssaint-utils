@@ -104,6 +104,24 @@ enum OmniWMConnection: Equatable {
 
 enum OmniWMWorkspaceSupport {
     static let preferenceKey = "local.omniWMWorkspaceBar"
+    static let scaleKey = "omniWMScale"
+    /// How far the slider may shrink or grow the strip and its list.
+    static let scaleRange: ClosedRange<Double> = 0.7...1.5
+
+    /// The strip's size factor, kept inside the slider's range whatever was saved.
+    static func scale(in defaults: UserDefaults = .standard) -> CGFloat {
+        clamped(defaults.object(forKey: scaleKey) as? Double ?? 1)
+    }
+
+    static func clamped(_ scale: Double) -> CGFloat {
+        CGFloat(min(max(scale, scaleRange.lowerBound), scaleRange.upperBound))
+    }
+
+    /// The feature is installed and its own switch is on.
+    static func isEnabled(in defaults: UserDefaults = .standard) -> Bool {
+        AppFeature.notchOmniWM.isAvailable(in: defaults)
+            && (defaults.object(forKey: preferenceKey) as? Bool ?? true)
+    }
 
     static func decode(_ data: Data) -> OmniWMWorkspaceBarPayload? {
         guard let response = try? JSONDecoder().decode(OmniWMWorkspaceBarResponse.self, from: data),
@@ -226,6 +244,8 @@ struct OmniWMWorkspaceHold {
 /// half, like a notice, instead of padding the narrower one with dead space.
 struct OmniWMWorkspaceLayout {
     let pillHeight: CGFloat
+    /// The Settings size factor, 1 at the default.
+    let scale: CGFloat
     /// Concentric with the island's lower corners, so a pill reads as nested
     /// in the island rather than set on it. A capsule island keeps capsules.
     let cornerRadius: CGFloat
@@ -246,14 +266,33 @@ struct OmniWMWorkspaceLayout {
     static let iconCap = 3
     static let overflowSize: CGFloat = 9
 
-    var textSize: CGFloat { min(12, pillHeight - 8) }
-    var iconSize: CGFloat { max(11, min(16, pillHeight - 10)) }
+    var textSize: CGFloat { Self.textSize(pillHeight: pillHeight, scale: scale) }
+    var iconSize: CGFloat { Self.iconSize(pillHeight: pillHeight, scale: scale) }
+    var overflowTextSize: CGFloat { Self.overflowSize * scale }
 
-    init(monitor: OmniWMWorkspaceBarMonitor?, geometry: NotchGeometry) {
-        pillHeight = max(18, min(26, geometry.stripBodyHeight - 6))
-        let island = NotchLayout.surfaceRadius(height: geometry.stripHeight)
+    /// The pill, text and icons size from what the island's strip fits, then
+    /// grow or shrink together with the Settings factor.
+    static func basePillHeight(_ geometry: NotchGeometry) -> CGFloat {
+        max(18, min(26, geometry.stripBodyHeight - 6))
+    }
+    static func textSize(pillHeight: CGFloat, scale: CGFloat) -> CGFloat {
+        min(12, pillHeight / scale - 8) * scale
+    }
+    static func iconSize(pillHeight: CGFloat, scale: CGFloat) -> CGFloat {
+        max(11, min(16, pillHeight / scale - 10)) * scale
+    }
+
+    init(monitor: OmniWMWorkspaceBarMonitor?, geometry: NotchGeometry,
+         scale: CGFloat = OmniWMWorkspaceSupport.scale()) {
+        self.scale = scale
+        let base = Self.basePillHeight(geometry)
+        pillHeight = scale == 1 ? base : (base * scale).rounded()
+        // A strip that outgrows the island's own height makes the island taller
+        // by the difference; a smaller one sits centred in the usual height.
+        let stripHeight = geometry.stripHeight + max(0, pillHeight - base)
+        let island = NotchLayout.surfaceRadius(height: stripHeight)
         cornerRadius = geometry.floats ? pillHeight / 2
-            : max(6, min(pillHeight / 2, island - (geometry.stripHeight - pillHeight) / 2))
+            : max(6, min(pillHeight / 2, island - (stripHeight - pillHeight) / 2))
         cameraGap = geometry.isNotched ? geometry.compactActivityCameraGap : 0
         let outer = geometry.floats
             ? NotchCapsuleLayout.side(geometry) + NotchCapsuleLayout.endPadding
@@ -264,7 +303,7 @@ struct OmniWMWorkspaceLayout {
         let workspaces = monitor?.workspaces ?? []
         let height = pillHeight
         let labels = showLabels
-        let widths = workspaces.map { Self.pillWidth($0, showLabels: labels, height: height) }
+        let widths = workspaces.map { Self.pillWidth($0, showLabels: labels, height: height, scale: scale) }
         // Without a physical camera there is nothing to split around: one
         // centred row.
         if !geometry.isNotched {
@@ -274,7 +313,7 @@ struct OmniWMWorkspaceLayout {
             leadingWidth = max(0, width - endInset * 2)
             trailingWidth = 0
             shift = 0
-            size = CGSize(width: width, height: geometry.stripHeight)
+            size = CGSize(width: width, height: stripHeight)
             return
         }
         // The split point that keeps the wider half narrowest, so the island
@@ -296,11 +335,11 @@ struct OmniWMWorkspaceLayout {
         leadingWidth = wing(widths[..<best.index])
         trailingWidth = wing(widths[best.index...])
         shift = (trailingWidth - leadingWidth) / 2
-        size = CGSize(width: leadingWidth + cameraGap + trailingWidth + endInset * 2, height: geometry.stripHeight)
+        size = CGSize(width: leadingWidth + cameraGap + trailingWidth + endInset * 2, height: stripHeight)
     }
 
     func pillWidth(_ workspace: OmniWMWorkspaceBarWorkspace) -> CGFloat {
-        Self.pillWidth(workspace, showLabels: showLabels, height: pillHeight)
+        Self.pillWidth(workspace, showLabels: showLabels, height: pillHeight, scale: scale)
     }
 
     func rowWidth(_ workspaces: [OmniWMWorkspaceBarWorkspace]) -> CGFloat {
@@ -308,15 +347,16 @@ struct OmniWMWorkspaceLayout {
     }
 
     /// Measured with the focused weight, so focus moving never changes a width.
-    static func pillWidth(_ workspace: OmniWMWorkspaceBarWorkspace, showLabels: Bool, height: CGFloat) -> CGFloat {
+    static func pillWidth(_ workspace: OmniWMWorkspaceBarWorkspace, showLabels: Bool, height: CGFloat,
+                          scale: CGFloat = 1) -> CGFloat {
         let name = OmniWMWorkspaceSupport.label(for: workspace, showLabels: showLabels)
-        let textSize = min(12, height - 8)
-        let iconSize = max(11, min(16, height - 10))
+        let textSize = Self.textSize(pillHeight: height, scale: scale)
+        let iconSize = Self.iconSize(pillHeight: height, scale: scale)
         var width = pillPadding * 2 + measure(name, size: textSize)
         let apps = OmniWMWorkspaceAppGroup.groups(in: workspace).count
         let shown = min(apps, iconCap)
         width += CGFloat(shown) * (iconSpacing + iconSize)
-        if apps > shown { width += iconSpacing + measure("+\(apps - shown)", size: overflowSize) }
+        if apps > shown { width += iconSpacing + measure("+\(apps - shown)", size: overflowSize * scale) }
         // A lone number stays a round pill rather than a sliver.
         return max(height, ceil(width))
     }
@@ -343,6 +383,11 @@ struct OmniWMWorkspacePanelLayout {
     let listHeight: CGFloat
     let size: CGSize
     static let rowHeight: CGFloat = 26
+    var rowHeight: CGFloat { Self.rowHeight * strip.scale }
+    var iconSize: CGFloat { Self.iconSize * strip.scale }
+    var markSize: CGFloat { 18 * strip.scale }
+    var textSize: CGFloat { 12 * strip.scale }
+    var markTextSize: CGFloat { 10 * strip.scale }
     static let rowSpacing: CGFloat = 2
     static let rowRadius: CGFloat = 8
     static let columnSpacing: CGFloat = 10
@@ -355,8 +400,9 @@ struct OmniWMWorkspacePanelLayout {
     static let iconSize: CGFloat = 18
     static let iconCap = 4
 
-    init(monitor: OmniWMWorkspaceBarMonitor?, geometry: NotchGeometry) {
-        strip = OmniWMWorkspaceLayout(monitor: monitor, geometry: geometry)
+    init(monitor: OmniWMWorkspaceBarMonitor?, geometry: NotchGeometry,
+         scale: CGFloat = OmniWMWorkspaceSupport.scale()) {
+        strip = OmniWMWorkspaceLayout(monitor: monitor, geometry: geometry, scale: scale)
         let listed = (monitor?.workspaces ?? []).filter { $0.isOccupied || $0.isFocused }
         entries = listed
         let count = listed.count >= 4 ? 2 : 1
@@ -366,8 +412,8 @@ struct OmniWMWorkspacePanelLayout {
         let minimum = CGFloat(count) * Self.minimumColumnWidth + CGFloat(count - 1) * Self.columnSpacing
             + Self.horizontalInset * 2
         let shown = CGFloat(min(lines, Self.maximumLines))
-        listHeight = shown * Self.rowHeight + max(0, shown - 1) * Self.rowSpacing
-        let height = geometry.stripHeight + Self.topGap + listHeight + Self.bottomInset
+        listHeight = shown * Self.rowHeight * scale + max(0, shown - 1) * Self.rowSpacing
+        let height = strip.size.height + Self.topGap + listHeight + Self.bottomInset
         // The open island's taller outline has wider shoulders than the strip
         // alone, so it grows past the strip enough for the end pills to keep
         // their gap from its sides.
