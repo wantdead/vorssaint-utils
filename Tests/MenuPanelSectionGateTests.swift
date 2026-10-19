@@ -18,5 +18,6 @@ enum MenuPanelSectionGateContract {
         expectGate(.utilities, keeps: UtilityPanelItem.allCases.map(\.feature), "utility")
         expectGate(.toggles, keeps: QuickToggleAction.allCases.map(\.feature), "quick toggle")
         expectGate(.system, keeps: [.connectedDevices], "connected devices")
+        expectGate(.vpn, keeps: [.openVPN], "VPN")
     }
 }

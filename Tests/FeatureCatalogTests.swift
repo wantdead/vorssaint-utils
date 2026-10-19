@@ -386,7 +386,7 @@ enum FeatureCatalogTests {
 
         // MARK: Features hub catalog
 
-        suite.expect(AppFeature.allCases.count == 78, "feature catalog has 78 features")
+        suite.expect(AppFeature.allCases.count == 79, "feature catalog has 79 features")
         suite.expect(Set(AppFeature.allCases.map(\.rawValue)).count == AppFeature.allCases.count,
                "feature ids are unique")
         suite.expect(AppFeature.allCases.map(\.rawValue) == [
@@ -399,10 +399,16 @@ enum FeatureCatalogTests {
             "keepAwake", "brightness", "extraBrightness", "bluetoothSleep",
             "quickLauncher", "quickToggles", "colorPicker", "screenOCR", "cleaningMode", "mediaTools",
             "cleaner", "uninstaller", "homebrew", "appUpdates", "screenshot", "cameraPreview",
-            "radialMenu", "scratchpad", "commandBar", "screenRecorder", "wallpaper", "killProcess", "portManager", "notch", "notchCalendar", "notchNotifications", "notchGestures", "notchTimer", "notchAccessories", "notchLyrics", "notchQueue", "notchLiveEqualizer", "notchDownloads", "notchAgents", "notchWatch", "notchMascot", "notchOmniWM",
+            "radialMenu", "scratchpad", "commandBar", "screenRecorder", "wallpaper", "killProcess", "portManager", "openVPN", "notch", "notchCalendar", "notchNotifications", "notchGestures", "notchTimer", "notchAccessories", "notchLyrics", "notchQueue", "notchLiveEqualizer", "notchDownloads", "notchAgents", "notchWatch", "notchMascot", "notchOmniWM",
             "monitorCPU", "monitorGPU", "monitorMemory", "monitorNetwork", "monitorDisk", "monitorPower",
             "connectedDevices", "fanControl",
         ], "feature ids are stable (they persist inside availability keys)")
+        suite.expect(AppFeature.openVPN.group == .tools
+                && !AppFeature.openVPN.installedByDefault
+                && AppFeature.openVPN.permissions.isEmpty,
+                     "OpenVPN Connect control is an opt-in tool that asks for no permission")
+        suite.expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.panelShowVPN),
+                     "the VPN section's visibility travels with settings backup")
         suite.expect(MouseAccelerationSupport.validatedRegistryID(nil) == nil
                 && MouseAccelerationSupport.validatedRegistryID(0) == nil
                 && MouseAccelerationSupport.validatedRegistryID(42) == 42,
@@ -2078,7 +2084,8 @@ enum FeatureCatalogTests {
                 == FeatureSettingsDestination(.features),
                "features without dedicated pages use explicit nearest Settings destinations")
         suite.expect(!AppFeature.diskImageInstaller.hasNavigableSettingsDestination
-                && AppFeature.allCases.filter { $0 != .diskImageInstaller }
+                && !AppFeature.openVPN.hasNavigableSettingsDestination
+                && AppFeature.allCases.filter { $0 != .diskImageInstaller && $0 != .openVPN }
                     .allSatisfy(\.hasNavigableSettingsDestination),
                "a feature without a separate configuration surface does not show a dead-end link")
         suite.expect(AppFeature.monitorCPU.settingsDestination == FeatureSettingsDestination(.monitor)

@@ -46,8 +46,8 @@ extension FeatureStrings {
 extension OpenVPNFeatureStrings {
     static let enUS = OpenVPNFeatureStrings(
         pageTitle: "VPN",
-        hubDescription: "See OpenVPN Connect's status and connect or disconnect from the panel",
-        panelDescription: "See OpenVPN Connect's status and connect or disconnect from the panel.",
+        hubDescription: "See OpenVPN Connect’s status and connect or disconnect from the panel",
+        panelDescription: "See OpenVPN Connect’s status and connect or disconnect from the panel.",
         statusConnected: "Connected",
         statusConnecting: "Connecting…",
         statusDisconnected: "Disconnected",
@@ -57,7 +57,7 @@ extension OpenVPNFeatureStrings {
         pinHint: "Enter the PIN in OpenVPN Connect",
         profile: "Profile",
         appMissing: "OpenVPN Connect is not installed",
-        cannotControl: "Can't control OpenVPN Connect",
+        cannotControl: "Can’t control OpenVPN Connect",
         noProfiles: "No profiles in OpenVPN Connect")
 
     static let ptBR = OpenVPNFeatureStrings(
@@ -85,12 +85,12 @@ extension OpenVPNFeatureStrings {
         statusDisconnected: "Bağlı değil",
         connect: "Bağlan",
         disconnect: "Bağlantıyı kes",
-        openApp: "OpenVPN Connect'i aç",
-        pinHint: "PIN'i OpenVPN Connect'te girin",
+        openApp: "OpenVPN Connect’i aç",
+        pinHint: "PIN’i OpenVPN Connect’te girin",
         profile: "Profil",
         appMissing: "OpenVPN Connect yüklü değil",
         cannotControl: "OpenVPN Connect kontrol edilemiyor",
-        noProfiles: "OpenVPN Connect'te profil yok")
+        noProfiles: "OpenVPN Connect’te profil yok")
 
     static let ru = OpenVPNFeatureStrings(
         pageTitle: "VPN",
@@ -158,8 +158,8 @@ extension OpenVPNFeatureStrings {
 
     static let fr = OpenVPNFeatureStrings(
         pageTitle: "VPN",
-        hubDescription: "Voyez l'état d'OpenVPN Connect et connectez-vous ou déconnectez-vous depuis le panneau",
-        panelDescription: "Voyez l'état d'OpenVPN Connect et connectez-vous ou déconnectez-vous depuis le panneau.",
+        hubDescription: "Voyez l’état d’OpenVPN Connect et connectez-vous ou déconnectez-vous depuis le panneau",
+        panelDescription: "Voyez l’état d’OpenVPN Connect et connectez-vous ou déconnectez-vous depuis le panneau.",
         statusConnected: "Connecté",
         statusConnecting: "Connexion…",
         statusDisconnected: "Déconnecté",
@@ -168,7 +168,7 @@ extension OpenVPNFeatureStrings {
         openApp: "Ouvrir OpenVPN Connect",
         pinHint: "Saisissez le code PIN dans OpenVPN Connect",
         profile: "Profil",
-        appMissing: "OpenVPN Connect n'est pas installé",
+        appMissing: "OpenVPN Connect n’est pas installé",
         cannotControl: "Impossible de contrôler OpenVPN Connect",
         noProfiles: "Aucun profil dans OpenVPN Connect")
 
