@@ -32,8 +32,9 @@ Verified on the installed app:
 - Executable: `/Applications/OpenVPN Connect/OpenVPN Connect.app/Contents/MacOS/OpenVPN Connect`.
 - `--list-profiles` prints JSON with `id`, `name`, `host`, `type` per profile. This is documented in `--help`.
 - `--connect-shortcut=<profile id>` starts a connection. It is not in `--help`; it appears in the app's bundled code. Running it started a connection that then asked for a PIN.
-- `--disconnect-shortcut` is also undocumented. It was run once but its effect was not confirmed, because the check that followed failed. Confirming it is part of the build.
-- No status command exists. The app writes connection events to `~/Library/Application Support/OpenVPN Connect/log/ovpn_full.log`, for example `EVENT: CONNECTED …`, `EVENT: CONNECTING`, `EVENT: GET_CONFIG`, `EVENT: ASSIGN_IP`. The tunnel appears as a `utun` interface.
+- `--disconnect-shortcut` is also undocumented. It ended the tunnel and the log wrote `EVENT: DISCONNECTED`.
+- The log writes nothing while a PIN is pending, so the section must remember a connect it started. The log does not name the profile; the `CONNECTED` entry names the server host, which can be matched to a profile's `host`. See `docs/superpowers/plans/2026-10-19-openvpn-connect-section-spike.md`.
+- No status command exists. The app writes connection events to `~/Library/Application Support/OpenVPN Connect/log/ovpn.log`, for example `EVENT: CONNECTED …`, `EVENT: CONNECTING`, `EVENT: GET_CONFIG`, `EVENT: ASSIGN_IP`. The tunnel appears as a `utun` interface.
 - OpenVPN Connect does not show up in `scutil --nc list`, so the system VPN status API cannot be used.
 - There is no command-line way to supply a PIN or private-key password at connect time. `--import-profile` accepts one at import only.
 - A profile can need a PIN on every connect. The profile inspected had no username or password directive, so the PIN is most likely a key or token unlock. This is an inference.

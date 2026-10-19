@@ -14,7 +14,7 @@
 
 - Vorssaint never reads, stores, logs or types a PIN or password. The PIN is entered in OpenVPN Connect's own window.
 - Control only through `/Applications/OpenVPN Connect/OpenVPN Connect.app/Contents/MacOS/OpenVPN Connect` with `--list-profiles`, `--connect-shortcut=<profile id>` and `--disconnect-shortcut`. No shell. Run through `BoundedProcessRunner.run` with a timeout and an output cap.
-- Status is read from `~/Library/Application Support/OpenVPN Connect/log/ovpn_full.log`. Read only the last 65,536 bytes.
+- Status is read from `~/Library/Application Support/OpenVPN Connect/log/ovpn.log`. Read only the last 65,536 bytes.
 - "Connected" needs a `CONNECTED` event in the log and the interface the log names (`Connected via utunN`) to exist with an IPv4 address. Other VPNs also have addressed `utun` interfaces, so never test "any utun".
 - Poll only while the panel is open. No work when the panel is closed or the feature is off.
 - If `--disconnect-shortcut` does not end the tunnel, stop and ask the maintainer. Do not quit the app, kill processes, or script its UI.
@@ -40,7 +40,7 @@ The maintainer must be at the machine: this drops the VPN, and reconnecting asks
 **Files:**
 - Create: `docs/superpowers/plans/2026-10-19-openvpn-connect-section-spike.md` (results and sample log lines)
 
-- [ ] **Step 1: Record the baseline.** Run `"<app>" --list-profiles` and save the JSON shape (field names only, no hosts). Save the last 30 lines of `ovpn_full.log` with hostnames and addresses replaced by placeholders.
+- [ ] **Step 1: Record the baseline.** Run `"<app>" --list-profiles` and save the JSON shape (field names only, no hosts). Save the last 30 lines of `ovpn.log` with hostnames and addresses replaced by placeholders.
 - [ ] **Step 2: Run `--disconnect-shortcut` with the app open and connected.** Record the exit code, whether it took focus or opened a dialog, whether the tunnel ended (`ifconfig <utunN>`), and the log events it wrote. Expected: tunnel ends and the log shows a terminal event. Record that event's exact text.
 - [ ] **Step 3: If the tunnel did not end, stop and ask the maintainer.** Do not continue to Task 2 until they answer.
 - [ ] **Step 4: Run `--connect-shortcut=<id>`** with the app open and then with the app quit. Record: does it launch the app, take focus, start a second instance, and what exit code it returns. Have the maintainer enter the PIN and record the event sequence up to `CONNECTED`, including whether the log shows anything while the PIN is pending.
@@ -57,23 +57,25 @@ The maintainer must be at the machine: this drops the VPN, and reconnecting asks
 
 **Interfaces:**
 - Produces:
-  - `struct OpenVPNProfile: Equatable, Identifiable { let id: String; let name: String }`
-  - `enum OpenVPNLogState: Equatable { case noEvents, inProgress, connected(interface: String?), ended }`. `ended` covers the terminal event the spike found in Task 1 Step 2.
+  - `struct OpenVPNProfile: Equatable, Identifiable { let id: String; let name: String; let host: String }`
+  - `enum OpenVPNLogState: Equatable { case noEvents, inProgress, connected(interface: String?, host: String?), ended }`. In progress: `RESOLVE WAIT CONNECTING GET_CONFIG ASSIGN_IP RECONNECTING PAUSE RESUME`. Ended: `DISCONNECTED EPKI_ERROR TUN_ERROR`. Unknown event names are ignored. See the spike notes.
   - `enum OpenVPNUnavailableReason: Equatable { case appMissing, logUnreadable, commandFailed }`
-  - `enum OpenVPNStatus: Equatable { case unavailable(OpenVPNUnavailableReason), disconnected, connecting, connected }`
+  - `enum OpenVPNStatus: Equatable { case unavailable(OpenVPNUnavailableReason), disconnected, connecting, connected(profileName: String?) }`
   - `enum OpenVPNSupport` with:
     - `static let appExecutablePath: String`, `static let logTailBytes: Int`
     - `static func logURL(home: URL) -> URL`
     - `static func parseProfiles(_ output: Data) -> [OpenVPNProfile]`
     - `static func parseLogState(_ tail: String) -> OpenVPNLogState`
-    - `static func resolveStatus(_ log: OpenVPNLogState, interfaceHasAddress: (String) -> Bool) -> OpenVPNStatus`
+    - `static func lastEventMarker(_ tail: String) -> String?`: the timestamp and name of the last `EVENT:` entry, for example `"Oct 19, 2026, 21:09:36 DISCONNECTED"`
+    - `static func resolveStatus(_ log: OpenVPNLogState, profiles: [OpenVPNProfile], interfaceHasAddress: (String) -> Bool) -> OpenVPNStatus`. The profile name is set only when exactly one profile has the host from the `CONNECTED` entry.
     - `static func connectArguments(profileID: String) -> [String]?`
     - `static let disconnectArguments: [String]`
 
 - [ ] **Step 1: Write failing tests in `OpenVPNTests.swift`** (enum `OpenVPNTests` with `static func run(_ suite: TestSuite)`), using the sample lines saved in Task 1:
-  - `parseProfiles` on the real JSON shape returns the ids and names in order; on `""`, on `"garbage"`, and on JSON wrapped in leading and trailing text returns `[]`, `[]`, and the profiles.
-  - `parseLogState` returns `.connected(interface: "utun7")` for a tail ending in `EVENT: CONNECTED` after `Connected via utun7`; `.inProgress` for a tail ending in `EVENT: GET_CONFIG`; `.ended` for the terminal event from Task 1; `.noEvents` for `""`; and the last event wins when the tail holds an older `CONNECTED` followed by a later in-progress event.
-  - `resolveStatus(.connected(interface: "utun7"), interfaceHasAddress: { _ in false })` is `.disconnected`; with `{ $0 == "utun7" }` it is `.connected`; with `.connected(interface: nil)` it is `.disconnected`.
+  - `parseProfiles` on the real JSON shape returns the ids, names and hosts in order; on `""`, on `"garbage"`, and on JSON wrapped in leading and trailing text returns `[]`, `[]`, and the profiles.
+  - `parseLogState` (using the sample log in the spike notes, where entries are separated by `⏎` and a line can hold two entries) returns `.connected(interface: "utun7", host: "vpn.example.com")` for a tail ending in the `CONNECTED` entry; `.inProgress` for a tail ending in `EVENT: GET_CONFIG`; `.ended` for tails ending in `DISCONNECTED`, `EPKI_ERROR` or `TUN_ERROR`; `.noEvents` for `""`; unknown event names are skipped; and the last event wins when the tail holds an older `CONNECTED` followed by a later in-progress event.
+  - `lastEventMarker` returns `"Oct 19, 2026, 21:09:36 DISCONNECTED"` for the sample log cut after that entry, and `nil` for `""`.
+  - `resolveStatus(.connected(interface: "utun7", host: h), profiles: ps, interfaceHasAddress: { _ in false })` is `.disconnected`; with `{ $0 == "utun7" }` it is `.connected(profileName:)`; with `interface: nil` it is `.disconnected`. The name is the profile's when exactly one profile has host `h`, and `nil` when two do or none does.
   - `connectArguments(profileID: "1747746310902")` is `["--connect-shortcut=1747746310902"]`; `"12; rm -rf"`, `""` and `"abc"` return `nil`.
   - `disconnectArguments == ["--disconnect-shortcut"]`.
 - [ ] **Step 2: Run `./build.sh --test-suite=openvpn`.** Expected: FAIL to compile, `OpenVPNSupport` not defined.
@@ -134,6 +136,8 @@ The maintainer must be at the machine: this drops the VPN, and reconnecting asks
   - `disconnect()` passes `["--disconnect-shortcut"]`.
   - a log tail ending `CONNECTED` with the named interface present gives `.connected`; absent gives `.disconnected`.
   - after `panelDidDisappear()` no further `readLogTail` calls happen.
+  - the log is silent while a PIN is pending: after `connect(profileID:)` with a tail whose last event is `DISCONNECTED`, status is `.connecting`; once the tail's `lastEventMarker` changes, status follows the log; with no change, `.connecting` ends after 120 seconds (use an injectable clock) and returns to `.disconnected`.
+  - `OpenVPNService.init` gains `now: @escaping () -> Date` for that timeout.
 - [ ] **Step 2: Run `./build.sh --test-suite=openvpn`.** Expected: FAIL.
 - [ ] **Step 3: Implement the service.** Run commands off the main thread with timeout 10 s and output cap 64 KB. `readLogTail` seeks to the last `logTailBytes` of the file. The live `interfaceHasAddress` uses `getifaddrs` and matches the exact interface name with an `AF_INET` address. `raiseApp()` opens OpenVPN Connect with `NSWorkspace`. Add the file to `TEST_SOURCES` in `build.sh`.
 - [ ] **Step 4: Run `./build.sh --test-suite=openvpn`.** Expected: PASS.
