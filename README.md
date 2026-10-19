@@ -160,6 +160,7 @@ Reorder or hide panel sections, choose a compact layout, and export settings to 
 - **Uninstaller.** Remove apps and review their related caches, preferences and helpers before moving them to the Trash.
 - **Homebrew manager.** Search, install and remove formulae and casks without opening a terminal.
 - **Port manager.** Find processes listening on network ports and stop them with Kill Process when installed.
+- **OpenVPN Connect.** See whether OpenVPN Connect is connected and connect or disconnect a saved profile from the panel. It drives the installed app through its own command-line flags and reads its connection log; the PIN is always entered in OpenVPN Connect.
 
 ### Energy and display
 
