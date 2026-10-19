@@ -349,7 +349,7 @@ struct MenuPanelView: View {
         case .controls: QuickControlsSection(collapsible: collapsible)
         case .toggles: QuickTogglesSection(collapsible: collapsible)
         case .wallpaper: if showWallpaper { WallpaperSection(collapsible: collapsible) }
-        case .vpn: if showVPN { EmptyView() }
+        case .vpn: if showVPN { VPNSection(collapsible: collapsible) }
         }
     }
 
