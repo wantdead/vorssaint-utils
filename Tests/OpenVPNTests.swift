@@ -120,6 +120,21 @@ enum OpenVPNTests {
                                                   interfaceHasAddress: { _ in true }) == .disconnected,
                      "no events is disconnected")
 
+        // MARK: Strings
+
+        let english = FeatureStrings.openVPN(.enUS)
+        for language in AppLanguage.allCases {
+            let strings = FeatureStrings.openVPN(language)
+            for field in Mirror(reflecting: strings).children {
+                let value = (field.value as? String) ?? ""
+                suite.expect(!value.trimmingCharacters(in: .whitespaces).isEmpty,
+                             "\(language) \(field.label ?? "?") is not empty")
+            }
+            if language != .enUS {
+                suite.expect(strings.pinHint != english.pinHint, "\(language) translates the PIN hint")
+            }
+        }
+
         // MARK: Commands and paths
 
         suite.expect(OpenVPNSupport.connectArguments(profileID: "1747746310902")

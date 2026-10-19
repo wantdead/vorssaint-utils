@@ -367,6 +367,7 @@ if (( TEST )); then
         Sources/Vorssaint/Core/RecorderShareStrings.swift
         Sources/Vorssaint/Core/CameraPreviewStrings.swift
         Sources/Vorssaint/Core/WallpaperStrings.swift
+        Sources/Vorssaint/Core/OpenVPNStrings.swift
         Sources/Vorssaint/Services/Wallpaper/WallpaperSupport.swift
         Sources/Vorssaint/Services/OpenVPN/OpenVPNSupport.swift
         Sources/Vorssaint/Core/ScratchpadStrings.swift
