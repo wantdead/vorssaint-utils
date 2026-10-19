@@ -5,11 +5,11 @@ import Foundation
 
 enum OpenVPNTests {
     /// OpenVPN Connect separates log entries with U+23CE, and one line can hold two.
-    private static func entry(_ time: String, _ text: String) -> String {
+    fileprivate static func entry(_ time: String, _ text: String) -> String {
         "\u{23CE}[Oct 19, 2026, \(time)] \(text)"
     }
 
-    private static let connectedSession =
+    fileprivate static let connectedSession =
         entry("21:09:36", "EVENT: DISCONNECTED ")
         + entry("21:09:45", "OpenVPN core 3.11.3 mac arm64 64-bit built on Oct 24 2025 02:51:48")
         + entry("21:09:45", "EVENT: RESOLVE ")
@@ -22,7 +22,7 @@ enum OpenVPNTests {
         + entry("21:09:47", "EVENT: CONNECTED vpn.example.com:1194 (192.0.2.10) via /TCP on utun7/198.51.100.4/ gw=[198.51.100.1/] mtu=1400")
         + entry("21:09:47", "MacLifeCycle NET_STATE 1 status=ReachableViaWiFi flags=-R -------")
 
-    private static let profilesJSON = """
+    fileprivate static let profilesJSON = """
     [
       { "host": "vpn.example.com", "id": "1747746310902", "name": "Office",
         "server-override": "none", "type": "autologin", "username": "" },
@@ -137,6 +137,9 @@ enum OpenVPNTests {
 
         // MARK: Commands and paths
 
+        suite.expect(OpenVPNSupport.appExecutablePath.hasPrefix(OpenVPNSupport.appBundlePath + "/"),
+                     "the executable lives inside the app bundle")
+
         suite.expect(OpenVPNSupport.connectArguments(profileID: "1747746310902")
                         == ["--connect-shortcut=1747746310902"],
                      "a numeric profile id becomes the connect flag")
@@ -153,5 +156,158 @@ enum OpenVPNTests {
         suite.expect(OpenVPNSupport.appExecutablePath
                         == "/Applications/OpenVPN Connect/OpenVPN Connect.app/Contents/MacOS/OpenVPN Connect",
                      "the app executable path")
+
+        OpenVPNServiceTests.run(suite)
+    }
+}
+
+enum OpenVPNServiceTests {
+    private static let disconnectedTail = OpenVPNTests.entry("21:09:36", "EVENT: DISCONNECTED ")
+    private static let connectID = "1747746310902"
+
+    /// Every dependency of the service, recorded and controllable.
+    private final class Fake {
+        var installed = true
+        var tail: String?
+        var addressed: Set<String> = []
+        var clock = Date(timeIntervalSince1970: 1_000)
+        var result = BoundedProcessRunner.Result(status: 0, output: Data(), timedOut: false)
+        var profileOutput = Data()
+        var commands: [[String]] = []
+        var logReads = 0
+
+        func service() -> OpenVPNService {
+            OpenVPNService(
+                runCommand: { [self] arguments in
+                    commands.append(arguments)
+                    if arguments == ["--list-profiles"] {
+                        return BoundedProcessRunner.Result(status: 0, output: profileOutput, timedOut: false)
+                    }
+                    return result
+                },
+                readLogTail: { [self] in logReads += 1; return tail },
+                interfaceHasAddress: { [self] in addressed.contains($0) },
+                appInstalled: { [self] in installed },
+                now: { [self] in clock },
+                background: { $0() },
+                main: { $0() })
+        }
+    }
+
+    private static func failed(status: Int32 = 1, timedOut: Bool = false) -> BoundedProcessRunner.Result {
+        BoundedProcessRunner.Result(status: status, output: Data(), timedOut: timedOut)
+    }
+
+    static func run(_ suite: TestSuite) {
+        do {
+            let fake = Fake()
+            fake.installed = false
+            let service = fake.service()
+            service.refresh()
+            service.connect(profileID: connectID)
+            suite.expect(service.status == .unavailable(.appMissing), "no app, no control")
+            suite.expect(fake.commands.isEmpty && fake.logReads == 0,
+                         "without the app nothing is run and no log is read")
+        }
+        do {
+            let fake = Fake()
+            let service = fake.service()
+            service.refresh()
+            suite.expect(service.status == .unavailable(.logUnreadable), "an unreadable log is reported")
+        }
+        do {
+            let fake = Fake()
+            fake.tail = disconnectedTail
+            let service = fake.service()
+            service.connect(profileID: "abc")
+            service.connect(profileID: "1; ls")
+            suite.expect(fake.commands.isEmpty, "a non-numeric profile id never reaches the command line")
+        }
+        do {
+            let fake = Fake()
+            fake.tail = disconnectedTail
+            let service = fake.service()
+            service.connect(profileID: connectID)
+            suite.expect(fake.commands == [["--connect-shortcut=\(connectID)"]],
+                         "connect passes the connect flag with the profile id")
+            suite.expect(service.status == .connecting, "a started connect is connecting")
+
+            fake.result = failed()
+            service.connect(profileID: connectID)
+            suite.expect(service.status == .unavailable(.commandFailed), "a failing command is reported")
+            service.refresh()
+            suite.expect(service.status == .unavailable(.commandFailed),
+                         "the failure stays until the next successful command")
+            fake.result = failed(status: 0, timedOut: true)
+            service.connect(profileID: connectID)
+            suite.expect(service.status == .unavailable(.commandFailed), "a timed out command is reported")
+            fake.result = BoundedProcessRunner.Result(status: 0, output: Data(), timedOut: false)
+            service.connect(profileID: connectID)
+            suite.expect(service.status == .connecting, "a successful command clears the failure")
+        }
+        do {
+            // The log says nothing while a PIN is pending, so a started connect is remembered.
+            let fake = Fake()
+            fake.tail = disconnectedTail
+            let service = fake.service()
+            service.connect(profileID: connectID)
+            service.refresh()
+            suite.expect(service.status == .connecting, "an unchanged log keeps a started connect connecting")
+            fake.tail = OpenVPNTests.connectedSession
+            fake.addressed = ["utun7"]
+            service.refresh()
+            suite.expect(service.status == .connected(profileName: nil), "a moved log takes over")
+        }
+        do {
+            let fake = Fake()
+            fake.tail = disconnectedTail
+            let service = fake.service()
+            service.connect(profileID: connectID)
+            fake.clock = fake.clock.addingTimeInterval(121)
+            service.refresh()
+            suite.expect(service.status == .disconnected,
+                         "a connect the log never answers stops showing connecting after 120 seconds")
+        }
+        do {
+            let fake = Fake()
+            fake.tail = disconnectedTail
+            let service = fake.service()
+            service.connect(profileID: connectID)
+            service.disconnect()
+            suite.expect(fake.commands.last == ["--disconnect-shortcut"], "disconnect passes the disconnect flag")
+            suite.expect(service.status == .disconnected, "disconnecting cancels a pending connect")
+        }
+        do {
+            let fake = Fake()
+            fake.tail = OpenVPNTests.connectedSession
+            fake.profileOutput = Data(OpenVPNTests.profilesJSON.utf8)
+            fake.addressed = ["utun7"]
+            let service = fake.service()
+            service.panelDidAppear()
+            suite.expect(service.profiles.count == 3, "opening the panel loads the saved profiles")
+            suite.expect(service.status == .connected(profileName: "Office"),
+                         "a verified tunnel shows the profile whose host it is on")
+            fake.addressed = []
+            service.refresh()
+            suite.expect(service.status == .disconnected, "a tunnel interface that is gone is disconnected")
+
+            let reads = fake.logReads
+            service.panelDidDisappear()
+            service.pollIfActive()
+            suite.expect(fake.logReads == reads, "a closed panel does no polling")
+        }
+        do {
+            let fake = Fake()
+            fake.tail = disconnectedTail
+            let service = fake.service()
+            service.panelDidAppear()
+            service.panelDidAppear()
+            service.panelDidDisappear()
+            let reads = fake.logReads
+            service.pollIfActive()
+            suite.expect(fake.logReads > reads, "polling continues while another panel is still open")
+            service.panelDidDisappear()
+            service.panelDidDisappear()
+        }
     }
 }

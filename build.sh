@@ -370,6 +370,7 @@ if (( TEST )); then
         Sources/Vorssaint/Core/OpenVPNStrings.swift
         Sources/Vorssaint/Services/Wallpaper/WallpaperSupport.swift
         Sources/Vorssaint/Services/OpenVPN/OpenVPNSupport.swift
+        Sources/Vorssaint/Services/OpenVPN/OpenVPNService.swift
         Sources/Vorssaint/Core/ScratchpadStrings.swift
         Sources/Vorssaint/Core/FinderRenameStrings.swift
         Sources/Vorssaint/Core/CommandBarStrings.swift

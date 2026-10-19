@@ -35,8 +35,8 @@ enum OpenVPNStatus: Equatable {
 /// and its log are not a documented interface, so everything that depends on
 /// their wording lives here, behind tests.
 enum OpenVPNSupport {
-    static let appExecutablePath =
-        "/Applications/OpenVPN Connect/OpenVPN Connect.app/Contents/MacOS/OpenVPN Connect"
+    static let appBundlePath = "/Applications/OpenVPN Connect/OpenVPN Connect.app"
+    static let appExecutablePath = appBundlePath + "/Contents/MacOS/OpenVPN Connect"
     static let logTailBytes = 65_536
     static let disconnectArguments = ["--disconnect-shortcut"]
 
