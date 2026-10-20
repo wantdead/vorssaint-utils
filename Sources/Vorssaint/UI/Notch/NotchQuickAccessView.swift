@@ -69,6 +69,8 @@ struct NotchQuickAccessView: View {
     @ObservedObject private var awake = KeepAwakeManager.shared
     @ObservedObject private var microphone = MicMuteService.shared
     @ObservedObject private var recorder = ScreenRecorderService.shared
+    @ObservedObject private var vpn = OpenVPNService.shared
+    @State private var observingVPN = false
     @AppStorage(DefaultsKey.notchLiquidGlassEnabled) private var glass = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
@@ -79,6 +81,33 @@ struct NotchQuickAccessView: View {
         if #available(macOS 26, *) { return glass && !reduceTransparency && contrast != .increased }
 #endif
         return false
+    }
+
+    private var showsVPN: Bool {
+        motion.interactive && motion.placements.contains { $0.button.action == .module(.openVPN) }
+    }
+
+    private var vpnConnected: Bool {
+        if case .connected = vpn.status { return true }
+        return false
+    }
+
+    private var vpnStatusText: String {
+        let strings = FeatureStrings.openVPN(l10n.language)
+        switch vpn.status {
+        case .connected: return strings.statusConnected
+        case .connecting: return strings.statusConnecting
+        case .disconnected: return strings.statusDisconnected
+        case .unavailable(.appMissing): return strings.appMissing
+        case .unavailable: return strings.cannotControl
+        }
+    }
+
+    private func observeVPN(_ visible: Bool) {
+        guard observingVPN != visible else { return }
+        observingVPN = visible
+        if visible { vpn.panelDidAppear() }
+        else { vpn.panelDidDisappear() }
     }
 
     var body: some View {
@@ -105,11 +134,14 @@ struct NotchQuickAccessView: View {
         .tint(.white)
         .allowsHitTesting(motion.interactive)
         .accessibilityHidden(!motion.interactive)
+        .onChange(of: showsVPN, initial: true) { observeVPN(showsVPN) }
+        .onDisappear { observeVPN(false) }
     }
 
     private func bubble(_ button: NotchQuickButton) -> some View {
         let action = button.action ?? .explore
         let isBack = action == .explore && service.showingSections
+        let connected = action == .module(.openVPN) && vpnConnected
         let selected: Bool = {
             if action == .explore { return service.showingSections }
             if action == .pin { return service.pinned }
@@ -141,12 +173,13 @@ struct NotchQuickAccessView: View {
         } label: {
             Image(systemName: symbol)
                 .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(connected ? Color.black : Color.white)
                 .frame(width: NotchQuickAccessLayout.diameter, height: NotchQuickAccessLayout.diameter)
                 // In glass the drop beneath carries the island's shade, which
                 // the window server does not count as the window's own pixels:
                 // a faint fill keeps the whole circle from passing clicks to
                 // the app behind, not just the glyph.
-                .background(followsGlass ? Color.black.opacity(0.02) : Color.black, in: Circle())
+                .background(connected ? Color.green : followsGlass ? Color.black.opacity(0.02) : Color.black, in: Circle())
                 .overlay {
                     Circle().strokeBorder(.white.opacity(selected || contrast == .increased ? 0.6 : 0.16), lineWidth: 0.75)
                         .allowsHitTesting(false)
@@ -156,6 +189,7 @@ struct NotchQuickAccessView: View {
         .buttonStyle(NotchButtonStyle(cornerRadius: NotchQuickAccessLayout.diameter / 2))
         .help(title)
         .accessibilityLabel(title)
+        .accessibilityValue(action == .module(.openVPN) ? vpnStatusText : "")
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityIdentifier("notch.quickAccess.\(button.id.uuidString)")
     }

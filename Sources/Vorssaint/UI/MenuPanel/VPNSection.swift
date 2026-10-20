@@ -117,3 +117,15 @@ struct VPNSection: View {
         }
     }
 }
+
+struct NotchVPNView: View {
+    let size: CGSize
+
+    var body: some View {
+        ScrollView {
+            VPNSection(collapsible: false)
+                .padding(.vertical, 4)
+        }
+        .frame(width: size.width, height: size.height, alignment: .top)
+    }
+}

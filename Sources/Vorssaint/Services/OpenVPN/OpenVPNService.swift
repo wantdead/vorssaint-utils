@@ -8,7 +8,7 @@ import Foundation
 
 /// Shows and drives OpenVPN Connect. The app owns the tunnel and asks for the
 /// PIN in its own window; this only sends it commands and reads its log.
-/// Nothing runs while no panel showing the section is open.
+/// Status polling runs while a panel or quick-access circle is visible.
 final class OpenVPNService: ObservableObject {
     static let shared = OpenVPNService(
         runCommand: { arguments in
@@ -67,7 +67,7 @@ final class OpenVPNService: ObservableObject {
         self.main = main
     }
 
-    /// Call when a view showing the section appears. Polling runs while any is open.
+    /// Call when a status view appears. Polling runs while any viewer is visible.
     func panelDidAppear() {
         viewers += 1
         reloadProfilesIfStale()

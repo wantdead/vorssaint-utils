@@ -1238,6 +1238,24 @@ enum NotchTests {
             defaults.set(value, forKey: key)
         }
         for (key, value) in AppFeature.availabilityDefaults { defaults.set(value, forKey: key) }
+        let vpnAvailable = defaults.bool(forKey: AppFeature.openVPN.availabilityKey)
+        defaults.set(true, forKey: AppFeature.openVPN.availabilityKey)
+        let vpnAction = NotchQuickAction.module(.openVPN)
+        suite.expect(NotchQuickAction.optionalActions.contains(vpnAction)
+                     && vpnAction.isAvailable(in: defaults),
+                     "OpenVPN is offered in the circle picker when its feature is enabled")
+        let vpnLayout = NotchQuickAccessConfiguration(side: .bottom, actions: [vpnAction])
+        let restoredVPN = try? JSONDecoder().decode(NotchQuickAccessConfiguration.self, from: vpnLayout.encoded)
+        suite.expect(restoredVPN == vpnLayout && vpnLayout.shown(in: defaults).count == 1,
+                     "an OpenVPN circle keeps its action and placement after saving")
+        defaults.set(false, forKey: AppFeature.openVPN.availabilityKey)
+        suite.expect(!vpnAction.isAvailable(in: defaults) && vpnLayout.shown(in: defaults).isEmpty
+                     && vpnLayout.buttons.count == 1,
+                     "disabling OpenVPN hides its circle without losing its saved position")
+        defaults.set(true, forKey: AppFeature.openVPN.availabilityKey)
+        suite.expect(vpnLayout.shown(in: defaults).count == 1,
+                     "reenabling OpenVPN restores its saved circle")
+        defaults.set(vpnAvailable, forKey: AppFeature.openVPN.availabilityKey)
         let firstInstall = "com.vorssaint.tests.notch-new-\(UUID().uuidString)"
         let fresh = UserDefaults(suiteName: firstInstall)!
         defer { fresh.removePersistentDomain(forName: firstInstall) }
