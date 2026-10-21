@@ -41,6 +41,8 @@ struct NotchPlayback: Equatable {
     var itemIdentifier: String? = nil
     var commandContext: NotchPlaybackContext? = nil
     var canSendCommandsDirectly = false
+    /// The scripting player's recording, which can advance before MediaRemote.
+    var automationItemIdentifier: String? = nil
     /// Nil when the player's commands could not be read.
     var canSkipNext: Bool? = nil
     var canSkipPrevious: Bool? = nil
@@ -67,6 +69,9 @@ struct NotchPlayback: Equatable {
         var info = reply.info
         if info["artworkUnchanged"] as? Bool == true {
             info[RadialNowPlayingSupport.artworkDataKey] = previousArtwork
+        }
+        if reply.displayID == "com.spotify.client" {
+            info[RadialNowPlayingSupport.artworkDataKey] = nil
         }
         guard let track = RadialNowPlayingSupport.snapshot(
                 info: info, isPlaying: true,

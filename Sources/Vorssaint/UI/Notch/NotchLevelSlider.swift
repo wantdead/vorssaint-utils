@@ -21,6 +21,8 @@ struct NotchLevelSlider: NSViewRepresentable {
     /// A value worth a tick on the track, such as unity on a fader that boosts.
     var marker: Double?
     var valueLabel: String?
+    /// A short command wait blocks input without flashing the progress color.
+    var preservesColorWhenDisabled = false
     var onEditingChanged: ((Bool) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -33,8 +35,8 @@ struct NotchLevelSlider: NSViewRepresentable {
     func makeNSView(context: Context) -> NSSlider {
         let slider = NSSlider()
         let cell = NotchLevelCell()
-        cell.trackingChanged = { [weak coordinator = context.coordinator] editing in
-            coordinator?.trackingChanged(editing)
+        cell.trackingChanged = { [weak coordinator = context.coordinator, weak slider] editing in
+            coordinator?.trackingChanged(editing, slider: slider)
         }
         slider.cell = cell
         slider.isVertical = vertical
@@ -58,8 +60,10 @@ struct NotchLevelSlider: NSViewRepresentable {
         (slider.cell as? NotchLevelCell)?.fill = NSColor(tint)
         (slider.cell as? NotchLevelCell)?.marker = marker
         (slider.cell as? NotchLevelCell)?.trackThickness = trackThickness
+        (slider.cell as? NotchLevelCell)?.preservesColorWhenDisabled = preservesColorWhenDisabled
         let bounded = value.isFinite ? min(upper, max(lower, value)) : lower
-        if slider.doubleValue != bounded { slider.doubleValue = bounded }
+        // Playback updates must not move the native thumb during tracking.
+        if !context.coordinator.isTracking, slider.doubleValue != bounded { slider.doubleValue = bounded }
         slider.isEnabled = context.environment.isEnabled
         let span = upper - lower
         slider.setAccessibilityValueDescription(
@@ -70,8 +74,12 @@ struct NotchLevelSlider: NSViewRepresentable {
     final class Coordinator: NSObject {
         var parent: NotchLevelSlider
         private var editing = NotchSliderEditing()
+        var isTracking: Bool { editing.isTracking }
         init(_ parent: NotchLevelSlider) { self.parent = parent }
-        func trackingChanged(_ value: Bool) {
+        func trackingChanged(_ value: Bool, slider: NSSlider? = nil) {
+            if !value, editing.isTracking, let slider {
+                parent.value = slider.doubleValue
+            }
             editing.trackingChanged(value, onEditingChanged: parent.onEditingChanged)
         }
         @objc func changed(_ sender: NSSlider) {
@@ -84,6 +92,7 @@ private final class NotchLevelCell: NSSliderCell {
     var fill: NSColor = .white
     var marker: Double?
     var trackThickness: CGFloat?
+    var preservesColorWhenDisabled = false
     var trackingChanged: ((Bool) -> Void)?
     private var isFader: Bool { isVertical }
 
@@ -124,7 +133,7 @@ private final class NotchLevelCell: NSSliderCell {
         track.fill()
         let span = maxValue - minValue
         let fraction = span > 0 ? min(1, max(0, (doubleValue - minValue) / span)) : 0
-        fill.withAlphaComponent(isEnabled ? 0.92 : 0.3).setFill()
+        fill.withAlphaComponent(isEnabled || preservesColorWhenDisabled ? 0.92 : 0.3).setFill()
         if isFader {
             let height = track.height * fraction
             NSRect(x: track.minX, y: flipped ? track.maxY - height : track.minY, width: track.width, height: height).fill()

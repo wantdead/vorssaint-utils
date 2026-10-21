@@ -105,6 +105,8 @@ enum NotchPlaybackCommand: Equatable {
         }
     }
 
+    var isTrackSkip: Bool { self == .next || self == .previous }
+
     var message: String? {
         switch self {
         case .toggle: return "toggle"

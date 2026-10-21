@@ -6,6 +6,7 @@
 /// edit open until the native cell finishes tracking.
 struct NotchSliderEditing {
     private var tracking = false
+    var isTracking: Bool { tracking }
 
     mutating func trackingChanged(_ value: Bool, onEditingChanged: ((Bool) -> Void)?) {
         guard tracking != value else { return }

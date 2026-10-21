@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Vorssaint
 
+import AppKit
 import Foundation
 import UniformTypeIdentifiers
 
@@ -153,6 +154,21 @@ enum NotchQueueHoldContract {}
 /// Production control and recovery methods run with a deterministic scheduler
 /// and a recording pipe, without a player process or a window.
 enum NotchMusicCommandContract {
+    enum ImageThumbnailer {
+        static func thumbnail(data: Data, pointSize: CGFloat, scale: CGFloat) -> NSImage? { nil }
+    }
+    final class NotchSpotifyMetadata {
+        var sample: NotchSpotifySample?
+        var followed: NotchPlayback?
+        var alive = true
+        var isFollowingCurrentSource: Bool { followed != nil && alive }
+        func follow(_ playback: NotchPlayback?, changed: @escaping () -> Void) {
+            followed = playback
+            if playback?.track.appBundleIdentifier != "com.spotify.client" { stop() }
+        }
+        func stop() { followed = nil; sample = nil }
+    }
+
     enum NotchQueueSupport { static func isEnabled() -> Bool { true } }
     enum NotchLyricsService {
         static let shared = Reader()
@@ -208,6 +224,33 @@ enum NotchMusicHardeningTests {
         pendingCommands(suite)
         controlLifecycle(suite)
         NotchMusicAutomationTests.run(suite)
+        NotchSeekReconciliationTests.run(suite)
+        repeatedTransport(suite)
+    }
+
+    private static func repeatedTransport(_ suite: TestSuite) {
+        let service = NotchMusicCommandContract.Service()
+        service.start()
+        var current = playback("one")
+        current.commandContext = .init(pid: 42, revision: UUID())
+        current.canSendCommandsDirectly = false
+        service.playback = current
+        service.automationSendAllowed = true
+        suite.expect(service.send(.next), "the first relative track command is accepted")
+        service.commandPending = true
+        suite.expect(service.send(.next) && service.send(.previous),
+            "rapid Next/Next/Previous presses are accepted while the first command is pending")
+        suite.expect(service.automationCommands == [.next, .next, .previous],
+            "the transport preserves every accepted track change in press order")
+        service.playback?.commandContext = .init(pid: 42, revision: UUID())
+        suite.expect(service.send(.next, context: current.commandContext),
+            "a fresh relative press stays attached to its player when the previous skip changes the recording")
+        suite.expect(!service.send(.next, context: .init(pid: 99, revision: UUID())),
+            "a rendered control from another player cannot join the selected player's skip queue")
+        service.gapWork = .init {}
+        suite.expect(service.send(.previous, context: current.commandContext),
+            "a short metadata gap between songs does not discard a fresh skip for the same authorized player")
+        service.gapWork = nil
     }
 
     private static func sourceSwitching(_ suite: TestSuite) {
@@ -1261,10 +1304,25 @@ enum NotchMusicHardeningTests {
         service.queue.drain()
         suite.expect(requests().last == NotchPlaybackRequest(command: .seek(75), context: context),
                "the production seek and writer preserve the gesture's process and recording revision")
+        suite.expect(service.playback?.elapsed == 75,
+            "an accepted seek immediately owns the playback clock after the slider releases")
+        service.receive(.init(playback: current, artwork: nil, tint: nil, sources: [], automatic: true, selectedPID: nil))
+        suite.expect(service.playback?.elapsed == 75,
+            "a pre-seek reading cannot pull the released timeline back before the player confirms the seek")
         Adapter.command = nil
         Adapter.sendPlaybackCommand(requests().last!)
         suite.expect(Adapter.command == 24 && Adapter.destination === nativePath,
                "a stable gesture traverses the real writer, decoder, validation and native dispatch")
+        let oldTrack = current.track
+        current = NotchPlayback(track: .init(title: oldTrack.title, artist: oldTrack.artist, album: oldTrack.album,
+            artworkData: Data([1, 2, 3]), appBundleIdentifier: oldTrack.appBundleIdentifier, appPID: oldTrack.appPID),
+            isPlaying: true, elapsed: 0, duration: 180, rate: 1, sampledAt: Date(), canSeek: true,
+            itemIdentifier: "A", commandContext: context, canSendCommandsDirectly: true)
+        service.playback = current
+        service.seek(to: 80, in: oldTrack, context: context)
+        service.queue.drain()
+        suite.expect(requests().last?.command == .seek(80),
+            "artwork arriving during a drag does not reject a seek within the same recording revision")
         var changed = current
         metadata["kMRMediaRemoteNowPlayingInfoContentItemIdentifier"] = "B"
         Adapter.metadata[ObjectIdentifier(nativePath)] = metadata

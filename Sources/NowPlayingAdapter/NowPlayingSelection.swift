@@ -88,6 +88,8 @@ enum NotchNativePlayback {
     }
 
     private static func playPauseCommand(for info: [String: Any]) -> Int32 {
+        // Toggle remains correct across rapid presses before a state update.
+        if info["canToggle"] as? Bool == true { return 2 }
         // The player's own state outranks a rate it has not updated yet.
         let rate = (info["isPlaying"] as? Bool).map { $0 ? 1 : 0 }
             ?? (info["kMRMediaRemoteNowPlayingInfoPlaybackRate"] as? NSNumber)?.doubleValue
@@ -265,8 +267,8 @@ enum NotchNativePlayback {
             context = NotchPlaybackContext(pid: target.pid, revision: UUID())
         }
         target.itemIdentifier = next.item
-        // Some players expose Play and Pause separately. Use the command for
-        // the displayed state, keeping Toggle for players without either one.
+        // Prefer Toggle when offered; separate Play and Pause commands use
+        // the displayed state.
         target.playPauseCommand = playPauseCommand(for: info)
         selected = target
         identity = next

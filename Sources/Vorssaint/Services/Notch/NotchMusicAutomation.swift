@@ -133,11 +133,19 @@ enum NotchMusicAutomation {
         return event
     }
 
+    static func recordingMatches(_ playback: NotchPlayback, target: Target) -> Bool {
+        guard let id = playback.automationItemIdentifier else { return true }
+        guard target.bundleIdentifier == "com.spotify.client",
+              let track = NotchSpotifyMetadata.property(0x7054726B) else { return false }
+        return NotchSpotifyMetadata.get(0x49442020, in: track, target: target)?.stringValue == id
+    }
+
     static func send(_ command: NotchPlaybackCommand, playback: NotchPlayback, availability: Availability,
                      cancellation: DispatchWorkItem, validatedAt: TimeInterval) -> Bool {
         guard !cancellation.isCancelled, availability.target.isCurrent,
-              access(to: availability.target) == .granted,
-              let event = event(command, playback: playback, capabilities: availability.capabilities, pid: availability.target.pid),
+              access(to: availability.target) == .granted else { return false }
+        if case .seek = command, !recordingMatches(playback, target: availability.target) { return false }
+        guard let event = event(command, playback: playback, capabilities: availability.capabilities, pid: availability.target.pid),
               !cancellation.isCancelled, availability.target.isCurrent,
               ProcessInfo.processInfo.systemUptime - validatedAt < 0.5 else { return false }
         // A timeout may occur after delivery. Never retry a playback action.

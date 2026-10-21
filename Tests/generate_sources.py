@@ -1637,9 +1637,30 @@ def main():
           + "}\n}\n")
 
     music = "Sources/Vorssaint/Services/Notch/NotchMusicService.swift"
+    slider = "Sources/Vorssaint/UI/Notch/NotchLevelSlider.swift"
+    write("NotchNativeSlider.swift", "import AppKit\nimport SwiftUI\n"
+          + declaration(slider, "private final class NotchLevelCell:").replace("private final class", "final class", 1)
+          + "enum NotchNativeSliderContract {\ntypealias NotchLevelSlider = Model\n"
+          + "struct Environment { var isEnabled = true }\n"
+          + "struct Context { let coordinator: Model.Coordinator; var environment = Environment() }\n"
+          + "struct Model {\nvar value = 0.0\nvar label = \"Position\"\nvar range = 0.0...1.0\n"
+          + "var tint = Color.white\nvar vertical = false\nvar marker: Double?\nvar trackThickness: CGFloat?\n"
+          + "var valueLabel: String?\nvar onEditingChanged: ((Bool) -> Void)?\n"
+          + "var preservesColorWhenDisabled = false\n"
+          + declaration(slider, "    func makeNSView(")
+          + declaration(slider, "    func updateNSView(")
+          + declaration(slider, "    final class Coordinator:")
+          + "}\n}\n")
     write("NotchMusicControls.swift", "import AppKit\n\nextension NotchMusicCommandContract {\n"
           + "final class Service {\ntypealias Command = NotchPlaybackCommand\n"
           + "var playback: NotchPlayback?\nvar generation = UUID()\nvar queueRequest: UUID?\n"
+          + "var seekState = NotchSeekReconciliation()\n"
+          + "let spotify = NotchSpotifyMetadata()\nvar spotifyPlayback = NotchSpotifyPlaybackState()\n"
+          + "var adapterReading: Reading?\nvar spotifySource: NotchPlayback?\n"
+          + "var spotifyArtwork: Data?\nvar spotifyImage: NSImage?\nvar spotifyTint: NotchArtworkTint?\n"
+          + "static func artworkTint(of image: NSImage) -> NotchArtworkTint? { nil }\n"
+          + declaration(music, "    private func receiveAdapter(").replace("private func", "func", 1)
+          + declaration(music, "    private func receiveSpotify()").replace("private func", "func", 1)
           + "var sources: [NotchPlaybackSource] = []\nvar sourceIsAutomatic = true\n"
           + "var artwork: NSObject?\nvar artworkTint: NotchArtworkTint?\n"
           + "func updateArtwork(_ image: NSImage?, tint: NotchArtworkTint?, playback: NotchPlayback?) { artwork = image; artworkTint = tint }\n"
@@ -1648,7 +1669,10 @@ def main():
           + "var queueVisible = true\nvar queueLoading = false\nvar queueActionPending = false\n"
           + "var commandFailed = false\nvar queueActionFailed = false\nvar commandPending = false\n"
           + "var canSeek: Bool { playback?.canSeek == true }\n"
-          + "func beginAutomation(_ command: Command, playback: NotchPlayback) -> Bool { false }\nfunc cancelAutomationAction() {}\n"
+          + "var usesAutomation: Bool { playback?.canSendCommandsDirectly == false }\n"
+          + "var automationSendAllowed = false\nvar automationCommands: [Command] = []\n"
+          + "func queueRelative(_ command: Command, playback: NotchPlayback) -> Bool { guard automationSendAllowed else { return false }; automationCommands.append(command); return true }\n"
+          + "func beginAutomation(_ command: Command, playback: NotchPlayback) -> Bool { guard automationSendAllowed else { return false }; commandPending = true; automationCommands.append(command); return true }\nfunc cancelAutomationAction() {}\n"
           + "var process: Process?\nvar input: Pipe?\nlet queue = Scheduler()\n"
           + "lazy var commandWriter = NotchMusicCommandWriter { [queue = self.queue] in queue.async(execute: $0) }\n"
           + "enum UserDefaults { static let standard = Preferences()\n"
@@ -1669,7 +1693,7 @@ def main():
           + declaration(music, "    private func receive(").replace("private func", "func", 1)
           + declaration(music, "    private func endPlaybackGap()").replace("private func", "func", 1)
           + declaration(music, "    private func apply(").replace("private func", "func", 1)
-          + declaration(music, "    func seek(")
+          + declaration(music, "    func seek(").replace("    func", "    @discardableResult\n    func", 1)
           + declaration(music, "    func selectSource(")
           + declaration(music, "    func send(_ command: Command)").replace("    func", "    @discardableResult\n    func", 1)
           + declaration(music, "    func send(_ command: Command, context:").replace("    func", "    @discardableResult\n    func", 1)
@@ -1694,19 +1718,26 @@ def main():
           + "}\n}\n")
     write("NotchMusicAutomationBodies.swift", "import Foundation\n\nextension NotchMusicAutomationFlowContract {\n"
           + "final class Service {\ntypealias Command = NotchPlaybackCommand\nvar playback: NotchPlayback?\n"
+          + "var seekState = NotchSeekReconciliation()\n"
           + "var automationAvailability: NotchMusicAutomation.Availability?\nvar automationTarget: NotchMusicAutomation.Target?\n"
           + "var generation = UUID()\nvar commandPending = false\nvar commandFailed = false\nvar requestingAutomation = false\n"
           + "var automationCancellation = DispatchWorkItem {}\nvar automationConsentCancellation = DispatchWorkItem {}\n"
           + "var automationTimeout: DispatchWorkItem?\nvar automationAction: AutomationAction?\nvar awaitingAutomationValidation = false\n"
-          + "let queue = Scheduler()\nvar refreshes = 0\nfunc refreshAutomation() { refreshes += 1 }\n"
+          + "let queue = Scheduler()\nvar commandQueue: Scheduler { queue }\nvar refreshes = 0\nfunc refreshAutomation() { refreshes += 1 }\n"
+          + "var transportTarget: NotchMusicAutomation.Target?\nlazy var transportCommands = NotchTransportCommands { [queue = self.queue] in queue.async(execute: $0) }\n"
           + "var validationRequests: [Command] = []\nfunc send(_ command: Command) -> Bool { validationRequests.append(command); return true }\n"
+          + "func refreshAfterCommand() {}\n"
           + declaration(music, "    private struct AutomationAction {").replace("private struct", "struct", 1)
           + declaration(music, "    var canSeek:")
+          + declaration(music, "    var usesAutomation:")
           + declaration(music, "    func canPerform(")
           + declaration(music, "    func lacksTrackSkipping(")
           + declaration(music, "    func requestAutomationAccess()")
           + declaration(music, "    private func beginAutomation(").replace("private func", "func", 1)
           + declaration(music, "    private func receiveValidation(").replace("private func", "func", 1)
+          + declaration(music, "    private func executeAutomation(").replace("private func", "func", 1)
+          + declaration(music, "    private func queueRelative(").replace("private func", "func", 1)
+          + declaration(music, "    private func cancelTransport()").replace("private func", "func", 1)
           + declaration(music, "    private func cancelAutomationAction()").replace("private func", "func", 1)
           + "}\n}\nextension NotchMusicAutomationFlowContract.NotchMusicAutomation {\n"
           + declaration("Sources/Vorssaint/Services/Notch/NotchMusicAutomation.swift", "    static func send(") + "}\n")
@@ -1716,6 +1747,7 @@ def main():
           + "var automationAvailability: NotchMusicAutomation.Availability?\nvar automationTarget: NotchMusicAutomation.Target?\n"
           + "var automationDiscovery = DispatchWorkItem {}\nvar automationConsentCancellation = DispatchWorkItem {}\n"
           + "var generation = UUID()\nlet queue = Scheduler()\nfunc cancelAutomationAction() { automationAction = nil }\n"
+          + "var transportTarget: NotchMusicAutomation.Target?\nfunc cancelTransport() { transportTarget = nil }\n"
           + declaration(music, "    func refreshAutomation()")
           + declaration(music, "    private func updateAutomation(").replace("private func", "func", 1)
           + "}\n}\n")

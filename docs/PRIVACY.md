@@ -13,7 +13,7 @@ Vorssaint is built to be local-first. Core features run on your Mac, and the app
 
 ## What it reads, and where that stays
 
-Everything Vorssaint shows you, from the CPU and memory load to the temperatures, the battery details, the network rates, the window list, per app volume and the files on the Shelf, is read locally through native macOS APIs and shown to you right there. Those readings are not uploaded automatically. Optional online lyric lookup sends only the song metadata described below.
+System readings, including CPU and memory load, temperatures, battery details, network rates, the window list, per app volume and the files on the Shelf, are read locally through native macOS APIs. Those readings are not uploaded automatically. Optional online lyric lookup and Spotify cover downloads use the connections described below.
 
 Clipboard history, including the images and files you copy, lives in the app's local storage on your Mac and never leaves it. Content marked as confidential by its source app is never recorded. Guessing sensitive content from the text is optional and off by default; unmarked passwords can be saved when it is off. Copy text from screen recognizes the text entirely on device with Apple's Vision framework, and the temporary capture is deleted as soon as the text is read. Automatic clearing, when you switch it on, only empties the system clipboard on this Mac: nothing is sent anywhere, and items already saved to your history are left as they are.
 
@@ -46,6 +46,10 @@ Playback controls prefer active playback, including a browser video when a music
 ## Network connections
 
 Vorssaint opens only a few kinds of connection, and each one belongs to a visible feature.
+
+The notch's Spotify player can read track details, playback position and the cover URL directly from the selected Spotify process after you grant Automation access. This fallback corrects missing artwork and stale timing in macOS playback metadata. Reads stop when the music service stops or another player is selected. Permission uses the music page's explicit Allow Playback button; without access, the player continues using macOS metadata.
+
+Spotify cover downloads request the image URL on `i.scdn.co` through an ephemeral session without stored cookies or credentials. Spotify receives the image identifier and ordinary request data, including your public IP address. The fallback keeps track metadata and decoded artwork in memory; temporary image downloads use the system's temporary storage. Changing players or stopping the service cancels pending downloads.
 
 1. **The update check, automatic and easy to switch off.** So it can tell you when a newer version exists, Vorssaint asks GitHub's public releases API at `api.github.com` for this project's latest release. The request carries only a standard user agent with the app name and its version, and no account, identifier or usage data go along with it. It runs a short while after launch and now and then while the app is open. You can turn it off in Settings under About, and once it is off no update requests are made. If you choose to install an offered update, the disk image comes from GitHub.
 

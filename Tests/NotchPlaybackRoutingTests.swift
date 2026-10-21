@@ -366,6 +366,14 @@ enum NotchPlaybackRoutingTests {
         Adapter.sendPlaybackCommand(NotchPlaybackRequest(command: .toggle, context: playing))
         suite.expect(Adapter.reply["sent"] as? Bool == true && Adapter.command == 1,
                      "a playing player that still reports no rate receives Pause")
+        info["canToggle"] = true
+        let toggleContext = Adapter.publish(player, info: info)!
+        Adapter.sendPlaybackCommand(NotchPlaybackRequest(command: .toggle, context: toggleContext))
+        suite.expect(Adapter.command == 2,
+            "a player offering Toggle uses its actual state instead of repeating Pause before metadata catches up")
+        Adapter.sendPlaybackCommand(NotchPlaybackRequest(command: .toggle, context: toggleContext))
+        suite.expect(Adapter.command == 2,
+            "a rapid second press also toggles rather than repeating the displayed state's explicit command")
 
         let stopped = Adapter.playbackPosition(elapsed: 57, age: 3, rate: 1, isPlaying: false)
         suite.expect(stopped.elapsed == 57 && stopped.rate == 0,

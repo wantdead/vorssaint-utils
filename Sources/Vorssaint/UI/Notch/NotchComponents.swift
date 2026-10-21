@@ -241,19 +241,26 @@ struct NotchPillButton: View {
 struct NotchArtwork: View {
     let image: NSImage?
     let size: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Group {
-            if let image {
-                Image(nsImage: image).resizable().scaledToFill()
-            } else {
-                Color.black.overlay {
-                    Image(systemName: "music.note")
-                        .font(.system(size: size * 0.3, weight: .light))
-                        .foregroundStyle(.white.opacity(0.45))
+        // A new cover fades in over the old one, in place, as a player's does.
+        ZStack {
+            Group {
+                if let image {
+                    Image(nsImage: image).resizable().scaledToFill()
+                } else {
+                    Color.white.opacity(0.08).overlay {
+                        Image(systemName: "music.note")
+                            .font(.system(size: size * 0.3, weight: .light))
+                            .foregroundStyle(.white.opacity(0.45))
+                    }
                 }
             }
+            .id(image.map(ObjectIdentifier.init))
+            .transition(.opacity)
         }
+        .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: image.map(ObjectIdentifier.init))
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: size * 0.19, style: .continuous))
         .overlay {

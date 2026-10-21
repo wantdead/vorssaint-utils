@@ -214,6 +214,7 @@ public func vorssaintNowPlayingGet() {
             if commands != nil {
                 set("canPlay", supports(0))
                 set("canPause", supports(1))
+                set("canToggle", supports(2))
                 set("canSeek", NotchNativePlayback.stringConstant("kMRMediaRemoteOptionPlaybackPosition") != nil && supports(24))
                 set("canSkipNext", supports(4))
                 set("canSkipPrevious", supports(5))
@@ -307,6 +308,9 @@ public func vorssaintNowPlayingWatch() {
     let observers = names.map { name in
         NotificationCenter.default.addObserver(forName: Notification.Name(name), object: nil, queue: .main) { _ in refresh() }
     }
+    let spotifyObserver = DistributedNotificationCenter.default().addObserver(
+        forName: Notification.Name("com.spotify.client.PlaybackStateChanged"), object: nil, queue: .main
+    ) { _ in refresh() }
     let termination = NSWorkspace.shared.notificationCenter.addObserver(
         forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { _ in refresh() }
     var commandFramer = NotchPlaybackCommandFramer()
@@ -321,7 +325,7 @@ public func vorssaintNowPlayingWatch() {
         }
     }
     reader.async { vorssaintNowPlayingGet() }
-    withExtendedLifetime((observers, termination)) { RunLoop.main.run() }
+    withExtendedLifetime((observers, termination, spotifyObserver)) { RunLoop.main.run() }
 }
 
 private func sendPlaybackCommand(_ request: NotchPlaybackRequest) {

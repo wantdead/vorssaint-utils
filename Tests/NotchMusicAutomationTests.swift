@@ -32,6 +32,10 @@ enum NotchMusicAutomationFlowContract {
         static var alive = true
         static var permission = Access.granted
         static var deliveries: [(NotchPlaybackCommand, Int32)] = []
+        static var currentSpotifyItem: String? = nil
+        static func recordingMatches(_ playback: NotchPlayback, target: Target) -> Bool {
+            playback.automationItemIdentifier.map { $0 == currentSpotifyItem } ?? true
+        }
         static func access(to target: Target) -> Access { permission }
         static var capabilities: NotchMusicAutomationCapabilities?
         static var inspections = 0
@@ -82,6 +86,7 @@ enum NotchMusicAutomationFlowContract {
         NotchMusicAutomation.alive = true
         NotchMusicAutomation.permission = .granted
         NotchMusicAutomation.deliveries = []
+        NotchMusicAutomation.currentSpotifyItem = nil
         NotchMusicAutomation.capabilities = nil
         NotchMusicAutomation.inspections = 0
         NotchMusicAutomation.shuffleState = false
@@ -119,12 +124,72 @@ enum NotchMusicAutomationTests {
     }
 
     static func run(_ suite: TestSuite) {
+        NotchSpotifyTests.run(suite)
+        repeatedTransport(suite)
         parsing(suite)
         descriptors(suite)
         shuffle(suite)
         shuffleFlow(suite)
         lifecycle(suite)
         refresh(suite)
+    }
+
+    private static func repeatedTransport(_ suite: TestSuite) {
+        typealias Context = NotchMusicAutomationFlowContract
+        typealias Automation = Context.NotchMusicAutomation
+        Context.reset()
+        defer { Context.reset() }
+        let service = Context.Service()
+        let current = playback()
+        let capabilities = NotchMusicAutomationCapabilities.parse(Data(dictionary.utf8))!
+        service.playback = current
+        service.automationAvailability = .init(target: .init(pid: 42), capabilities: capabilities, access: .granted)
+        service.commandPending = true
+        suite.expect(service.canPerform(.next) && service.canPerform(.previous) && !service.canPerform(.toggle),
+            "relative track presses remain available during another control's pending round trip")
+        for command in [NotchPlaybackCommand.next, .next, .previous] {
+            suite.expect(service.queueRelative(command, playback: current), "each rapid track change enters the serial player queue")
+        }
+        service.playback?.commandContext = .init(pid: 42, revision: UUID())
+        service.queue.drain(); Context.DispatchQueue.main.drain()
+        suite.expect(Automation.deliveries.map { $0.0 } == [.next, .next, .previous]
+            && service.validationRequests.isEmpty,
+            "recording changes do not cancel queued relative commands or reorder their delivery")
+
+        Automation.deliveries = []
+        _ = service.queueRelative(.next, playback: current)
+        service.cancelTransport()
+        service.queue.drain(); Context.DispatchQueue.main.drain()
+        suite.expect(Automation.deliveries.isEmpty, "closing or switching the selected source cancels unsent skips")
+
+        _ = service.queueRelative(.next, playback: current)
+        let other = NotchPlayback(track: .init(title: "Other", artist: "Artist", album: nil, artworkData: nil,
+            appBundleIdentifier: "local.test.player", appPID: 99), isPlaying: true, elapsed: 0,
+            duration: 180, rate: 1, sampledAt: Date(), canSeek: false,
+            commandContext: .init(pid: 99, revision: UUID()))
+        service.playback = other
+        service.automationAvailability = .init(target: .init(pid: 99), capabilities: capabilities, access: .granted)
+        _ = service.queueRelative(.previous, playback: other)
+        service.queue.drain(); Context.DispatchQueue.main.drain()
+        suite.expect(Automation.deliveries.count == 1 && Automation.deliveries.first?.1 == 99,
+            "selecting another process retires the previous queue rather than retargeting its commands")
+
+        Automation.deliveries = []
+        _ = service.queueRelative(.next, playback: other)
+        Automation.permission = .denied
+        service.queue.drain(); Context.DispatchQueue.main.drain()
+        suite.expect(Automation.deliveries.isEmpty, "permission is checked again before every queued event")
+        service.cancelTransport()
+
+        let worker = Context.Scheduler()
+        let queue = NotchTransportCommands { worker.async(execute: $0) }
+        for _ in 0..<NotchTransportCommands.maximumPending {
+            suite.expect(queue.submit { _ in }, "the bounded queue accepts its documented capacity")
+        }
+        suite.expect(!queue.submit { _ in }, "rapid input cannot create an unbounded command backlog")
+        queue.reset()
+        suite.expect(queue.submit { _ in }, "resetting the source immediately restores queue capacity")
+        worker.drain()
     }
 
     private static func parsing(_ suite: TestSuite) {
@@ -397,6 +462,37 @@ enum NotchMusicAutomationTests {
         service.automationAvailability = .init(target: target, capabilities: capabilities, access: .granted)
         suite.expect(service.canSeek && current.seekPosition(20, allowed: service.canSeek) == 20,
                "authorized scripting position enables effective seek without a native seeking capability")
+        let spotifyTrack = RadialNowPlayingSnapshot(title: "Song", artist: "Artist", album: "Album", artworkData: nil,
+            appBundleIdentifier: "com.spotify.client", appPID: 42)
+        service.playback = NotchPlayback(track: spotifyTrack, isPlaying: true, elapsed: 3, duration: 180,
+            rate: 1, sampledAt: Date(), canSeek: false, commandContext: current.commandContext,
+            canSendCommandsDirectly: true, automationItemIdentifier: "spotify:track:one")
+        suite.expect(service.canSeek && service.canPerform(.seek(20)),
+            "Spotify's authorized position remains editable when its native session cannot seek")
+        suite.expect(service.usesAutomation && service.canPerform(.toggle),
+            "Spotify's own controls are preferred to a stale native session once scripting is authorized")
+        let spotifyPlayback = service.playback!
+        let cancellation = DispatchWorkItem {}
+        Automation.currentSpotifyItem = "spotify:track:next"
+        suite.expect(!Automation.send(.seek(20), playback: spotifyPlayback,
+            availability: service.automationAvailability!, cancellation: cancellation,
+            validatedAt: ProcessInfo.processInfo.systemUptime) && Automation.deliveries.isEmpty,
+            "a scripting seek cannot hit the next Spotify recording while MediaRemote still shows the old one")
+        Automation.currentSpotifyItem = "spotify:track:one"
+        suite.expect(Automation.send(.seek(20), playback: spotifyPlayback,
+            availability: service.automationAvailability!, cancellation: cancellation,
+            validatedAt: ProcessInfo.processInfo.systemUptime), "a matching live Spotify recording accepts the seek")
+        Automation.deliveries = []
+        suite.expect(service.beginAutomation(.toggle, playback: spotifyPlayback)
+            && service.validationRequests.isEmpty,
+            "authorized Spotify controls dispatch without waiting for the stale MediaRemote session")
+        service.queue.drain(); Context.DispatchQueue.main.drain()
+        suite.expect(Automation.deliveries.count == 1 && !service.commandPending,
+            "Spotify's immediate route completes exactly one control action")
+        Automation.deliveries = []
+        service.cancelAutomationAction()
+        service.validationRequests = []
+        service.playback = current
         var readonly = capabilities; readonly.position = nil
         service.automationAvailability = .init(target: target, capabilities: readonly, access: .granted)
         suite.expect(!service.canSeek, "authorization cannot make an undeclared or read-only position writable")
@@ -481,5 +577,13 @@ enum NotchMusicAutomationTests {
                "another player never shows the previous player's access")
         land()
         suite.expect(service.automationAvailability?.target.pid == 43, "the new player gets its own answer")
+        let spotify = NotchPlayback(track: .init(title: "Song", artist: "Artist", album: "Album", artworkData: nil,
+            appBundleIdentifier: "com.spotify.client", appPID: 42), isPlaying: true, elapsed: 3,
+            duration: 180, rate: 1, sampledAt: Date(), canSeek: true, canSendCommandsDirectly: true)
+        service.playback = spotify
+        service.updateAutomation(for: spotify)
+        land()
+        suite.expect(service.automationAvailability?.target.pid == 42,
+            "Spotify metadata can request app-owned consent even when native transport controls already work")
     }
 }

@@ -73,6 +73,14 @@ final class NotchMusicService: ObservableObject {
     private var restoringSource = false
     private var artworkCache = NotchArtworkCache<(image: NSImage, tint: NotchArtworkTint?)>()
     private var artworkWork: DispatchWorkItem?
+    private let spotify = NotchSpotifyMetadata()
+    private var spotifyPlayback = NotchSpotifyPlaybackState()
+    private var seekState = NotchSeekReconciliation()
+    private var adapterReading: Reading?
+    private var spotifySource: NotchPlayback?
+    private var spotifyArtwork: Data?
+    private var spotifyImage: NSImage?
+    private var spotifyTint: NotchArtworkTint?
     private var automationTarget: NotchMusicAutomation.Target?
     private var automationDiscovery = DispatchWorkItem {}
     private var automationCancellation = DispatchWorkItem {}
@@ -87,7 +95,12 @@ final class NotchMusicService: ObservableObject {
     private var automationAction: AutomationAction?
     private var awaitingAutomationValidation = false
     private let queue = DispatchQueue(label: "com.vorssaint.notch-music", qos: .utility)
-    private lazy var commandWriter = NotchMusicCommandWriter { [queue = self.queue] action in queue.async(execute: action) }
+    private let commandQueue = DispatchQueue(label: "com.vorssaint.notch-music-controls", qos: .userInitiated)
+    private var transportTarget: NotchMusicAutomation.Target?
+    private lazy var transportCommands = NotchTransportCommands { [queue = self.commandQueue] action in
+        queue.async(execute: action)
+    }
+    private lazy var commandWriter = NotchMusicCommandWriter { [queue = self.commandQueue] action in queue.async(execute: action) }
 
     private init() {}
 
@@ -170,7 +183,7 @@ final class NotchMusicService: ObservableObject {
             DispatchQueue.main.async {
                 guard let self, self.generation == requested,
                       self.acceptsSourceReply(automatic: automatic, sources: sources) else { return }
-                self.receive(Reading(playback: next, artwork: image, tint: tint, sources: sources,
+                self.receiveAdapter(Reading(playback: next, artwork: image, tint: tint, sources: sources,
                                      automatic: automatic, selectedPID: selectedPID))
             }
         }
@@ -220,13 +233,45 @@ final class NotchMusicService: ObservableObject {
         return !restoring
     }
 
-    /// A player moving on to its next song can clear its metadata for a
-    /// moment, which reads as nothing playing or as another player's paused
-    /// song standing in, or report the next song paused before it starts. The
-    /// page would empty or change and shrink, and the compact strip leave,
-    /// until the next song plays. The last song stays through such a gap and
-    /// the next reading replaces it at once. Later readings of the gap never
-    /// extend the grace period.
+    private func receiveAdapter(_ reading: Reading) {
+        adapterReading = reading
+        if let next = reading.playback {
+            spotifySource = next.track.appBundleIdentifier == "com.spotify.client" ? next : nil
+        } else if !spotify.isFollowingCurrentSource
+            || (reading.selectedPID != nil && reading.selectedPID != spotifySource?.track.appPID) {
+            spotifySource = nil
+        }
+        // Native sessions may disappear during skips. The selected process,
+        // not the availability of a native recording, owns direct polling.
+        spotify.follow(spotifySource) { [weak self] in self?.receiveSpotify() }
+        receiveSpotify()
+    }
+
+    private func receiveSpotify() {
+        guard let reading = adapterReading else { return }
+        if spotifySource != nil, !spotify.isFollowingCurrentSource {
+            spotify.stop()
+            spotifySource = nil
+            let ended = Reading(playback: nil, artwork: nil, tint: nil,
+                sources: reading.sources, automatic: reading.automatic, selectedPID: reading.selectedPID)
+            adapterReading = ended
+            receive(ended)
+            return
+        }
+        guard let original = spotifySource, let sample = spotify.sample else { receive(reading); return }
+        let playback = spotifyPlayback.applying(sample, to: original)
+        let data = playback.track.artworkData
+        if spotifyArtwork != data {
+            spotifyArtwork = data
+            spotifyImage = data.flatMap { ImageThumbnailer.thumbnail(data: $0, pointSize: 160, scale: 2) }
+            spotifyTint = spotifyImage.flatMap(Self.artworkTint(of:))
+        }
+        receive(Reading(playback: playback, artwork: spotifyImage, tint: spotifyTint,
+            sources: reading.sources, automatic: reading.automatic, selectedPID: reading.selectedPID))
+    }
+
+    /// Holds the last song through a metadata gap until the next song starts
+    /// or the grace period expires. Repeated empty readings keep that deadline.
     private func receive(_ reading: Reading) {
         // A player that still lists a song when another player's paused song
         // takes its place was paused. During a gap it had left, the song it
@@ -257,20 +302,21 @@ final class NotchMusicService: ObservableObject {
     }
 
     private func apply(_ reading: Reading) {
+        let next = seekState.receive(reading.playback)
         let first = awaitingPlayback
-        if trackChange.isNewSong(reading.playback, first: first) { trackChanges.send() }
-        else if !first, let current = playback, NotchTrackChange.isBetweenSongs(reading.playback, after: current) {
+        if trackChange.isNewSong(next, first: first) { trackChanges.send() }
+        else if !first, let current = playback, NotchTrackChange.isBetweenSongs(next, after: current) {
             trackEnds.send()
         }
-        updateArtwork(reading.artwork, tint: reading.tint, playback: reading.playback)
-        playback = reading.playback
+        updateArtwork(reading.artwork, tint: reading.tint, playback: next)
+        playback = next
         sources = reading.sources
-        NotchPreferredPlayer.remember(reading.playback, in: reading.sources)
+        NotchPreferredPlayer.remember(next, in: reading.sources)
         sourceIsAutomatic = reading.automatic ?? true
         selectedSourcePID = reading.selectedPID
         awaitingPlayback = false
-        updateAutomation(for: reading.playback)
-        NotchLyricsService.shared.playbackChanged(reading.playback)
+        updateAutomation(for: next)
+        NotchLyricsService.shared.playbackChanged(next)
         updateQueue()
     }
 
@@ -344,6 +390,13 @@ final class NotchMusicService: ObservableObject {
     }
 
     private func disconnect() {
+        cancelTransport()
+        spotify.stop()
+        spotifySource = nil
+        spotifyPlayback = NotchSpotifyPlaybackState()
+        seekState = NotchSeekReconciliation()
+        adapterReading = nil
+        spotifyArtwork = nil; spotifyImage = nil; spotifyTint = nil
         endPlaybackGap()
         artworkWork?.cancel()
         artworkWork = nil
@@ -395,6 +448,10 @@ final class NotchMusicService: ObservableObject {
         guard selection == nil || sources.contains(where: { $0.selection == selection }),
               send(.source(selection)) else { return }
         chosenSource = selection
+        spotify.stop()
+        spotifySource = nil
+        adapterReading = nil
+        spotifyPlayback = NotchSpotifyPlaybackState()
         cancelAutomationAction()
         setQueueVisible(false)
         // Remove the old controls while the adapter validates and reads the
@@ -489,11 +546,17 @@ final class NotchMusicService: ObservableObject {
         upcoming = next
     }
 
-    func seek(to position: Double, in track: RadialNowPlayingSnapshot, context: NotchPlaybackContext?) {
-        guard let playback, playback.track == track,
+    @discardableResult
+    func seek(to position: Double, in track: RadialNowPlayingSnapshot, context: NotchPlaybackContext?, itemIdentifier: String? = nil) -> Bool {
+        guard let playback, playback.track.appPID == track.appPID,
+              playback.track.appBundleIdentifier == track.appBundleIdentifier,
+              playback.track.title == track.title, playback.track.artist == track.artist, playback.track.album == track.album,
+              playback.automationItemIdentifier == itemIdentifier,
               let context, context == playback.commandContext,
-              let position = playback.seekPosition(position, allowed: canSeek) else { return }
-        send(.seek(position), context: context)
+              let position = playback.seekPosition(position, allowed: canSeek) else { return false }
+        guard send(.seek(position), context: context) else { return false }
+        self.playback = seekState.begin(playback, position: position)
+        return true
     }
 
     @discardableResult
@@ -519,11 +582,16 @@ final class NotchMusicService: ObservableObject {
         }
         guard process?.isRunning == true, let input else { return false }
         if command.requiresPlaybackContext {
-            // A song held through a gap has no player left to reach, and a
-            // command would come back as a failure.
-            guard gapWork == nil, let context, context == playback?.commandContext else { return false }
-            guard !commandPending, let playback else { return false }
-            if !playback.canSendCommandsDirectly { return beginAutomation(command, playback: playback) }
+            guard let context, let playback else { return false }
+            if usesAutomation, command.isTrackSkip {
+                guard context.pid == playback.track.appPID else { return false }
+                return queueRelative(command, playback: playback)
+            }
+            // Position-dependent actions require a live recording. Relative
+            // scripting skips above remain bound to the running player.
+            guard gapWork == nil, context == playback.commandContext else { return false }
+            guard !commandPending else { return false }
+            if usesAutomation { return beginAutomation(command, playback: playback) }
         }
         let requested = generation
         let requestedQueue = command.queueRequest
@@ -543,16 +611,27 @@ final class NotchMusicService: ObservableObject {
         })
     }
 
+    var usesAutomation: Bool {
+        guard let playback else { return false }
+        return !playback.canSendCommandsDirectly
+            || (playback.track.appBundleIdentifier == "com.spotify.client"
+                && playback.automationItemIdentifier != nil
+                && automationAvailability?.access == .granted)
+    }
+
     var canSeek: Bool {
         guard let playback, playback.hasPosition, playback.duration > 0 else { return false }
-        return playback.canSendCommandsDirectly ? playback.canSeek
+        return !usesAutomation ? playback.canSeek
             : automationAvailability?.access == .granted && automationAvailability?.capabilities.position != nil
     }
 
-    func canPerform(_ command: Command) -> Bool {
-        guard let playback, playback.commandContext != nil, !commandPending else { return false }
+    /// Capabilities keep buttons visually stable while a command is pending.
+    /// Relative track changes enter the selected player's serial queue.
+    func canPerform(_ command: Command, ignoringPending: Bool = false) -> Bool {
+        guard let playback, playback.commandContext != nil,
+              ignoringPending || !commandPending || (usesAutomation && command.isTrackSkip) else { return false }
         if case .seek = command { return canSeek }
-        if playback.canSendCommandsDirectly { return !lacksTrackSkipping(command) }
+        if !usesAutomation { return !lacksTrackSkipping(command) }
         guard let available = automationAvailability, available.access == .granted else { return false }
         if command == .toggle { return available.capabilities.canToggle }
         return available.capabilities.event(for: command, isPlaying: playback.isPlaying) != nil
@@ -560,7 +639,7 @@ final class NotchMusicService: ObservableObject {
 
     /// The player itself says it cannot skip this way, so the button is hidden.
     func lacksTrackSkipping(_ command: Command) -> Bool {
-        guard let playback, playback.canSendCommandsDirectly else { return false }
+        guard let playback, !usesAutomation else { return false }
         switch command {
         case .next: return playback.canSkipNext == false
         case .previous: return playback.canSkipPrevious == false
@@ -574,8 +653,13 @@ final class NotchMusicService: ObservableObject {
     }
 
     private func updateAutomation(for playback: NotchPlayback?) {
+        if let transportTarget, playback.flatMap(NotchMusicAutomation.Target.init) != transportTarget {
+            cancelTransport()
+        }
         if let action = automationAction, action.playback.commandContext != playback?.commandContext { cancelAutomationAction() }
-        guard let playback, !playback.canSendCommandsDirectly, let target = NotchMusicAutomation.Target(playback) else {
+        guard let playback,
+              !playback.canSendCommandsDirectly || playback.track.appBundleIdentifier == "com.spotify.client",
+              let target = NotchMusicAutomation.Target(playback) else {
             automationDiscovery.cancel()
             automationConsentCancellation.cancel()
             automationTarget = nil
@@ -631,7 +715,7 @@ final class NotchMusicService: ObservableObject {
     }
 
     private func beginAutomation(_ command: Command, playback: NotchPlayback) -> Bool {
-        guard canPerform(command), let context = playback.commandContext,
+        guard !commandPending, canPerform(command), let context = playback.commandContext,
               let available = automationAvailability, available.target.isCurrent else { return false }
         let action = AutomationAction(command: command, playback: playback, availability: available)
         automationAction = action
@@ -646,6 +730,13 @@ final class NotchMusicService: ObservableObject {
         }
         automationTimeout = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: timeout)
+        // Spotify's scripting read identifies its own recording. Its native
+        // session can stay on the previous song and need not delay controls.
+        if playback.track.appBundleIdentifier == "com.spotify.client", playback.automationItemIdentifier != nil {
+            awaitingAutomationValidation = false
+            executeAutomation(action)
+            return true
+        }
         guard send(.validate(action.id, context)) else {
             cancelAutomationAction(); commandFailed = true; return false
         }
@@ -659,17 +750,54 @@ final class NotchMusicService: ObservableObject {
         guard reply["validationOK"] as? Bool == true, playback?.commandContext == action.playback.commandContext else {
             cancelAutomationAction(); commandFailed = true; return
         }
-        automationTimeout?.cancel(); automationTimeout = nil
+        executeAutomation(action)
+    }
+
+    private func refreshAfterCommand() { spotify.refresh() }
+
+    private func cancelTransport() {
+        transportCommands.reset()
+        transportTarget = nil
+    }
+
+    private func queueRelative(_ command: Command, playback: NotchPlayback) -> Bool {
+        guard command.isTrackSkip, canPerform(command, ignoringPending: true),
+              let available = automationAvailability, available.target.isCurrent,
+              NotchMusicAutomation.Target(playback) == available.target else { return false }
+        if transportTarget != available.target {
+            cancelTransport()
+            transportTarget = available.target
+        }
+        commandFailed = false
+        let accepted = transportCommands.submit { [weak self] cancellation in
+            let succeeded = NotchMusicAutomation.send(command, playback: playback, availability: available,
+                cancellation: cancellation, validatedAt: ProcessInfo.processInfo.systemUptime)
+            DispatchQueue.main.async {
+                guard let self, !cancellation.isCancelled, self.transportTarget == available.target else { return }
+                self.commandFailed = !succeeded
+                if succeeded { self.refreshAfterCommand() }
+                else { self.refreshAutomation() }
+            }
+        }
+        if !accepted { commandFailed = true }
+        return accepted
+    }
+
+    private func executeAutomation(_ action: AutomationAction) {
         let cancellation = automationCancellation
         let validatedAt = ProcessInfo.processInfo.systemUptime
-        queue.async { [weak self] in
+        commandQueue.async { [weak self] in
             let succeeded = NotchMusicAutomation.send(action.command, playback: action.playback,
                 availability: action.availability, cancellation: cancellation, validatedAt: validatedAt)
             DispatchQueue.main.async {
                 guard let self, !cancellation.isCancelled, self.automationAction?.id == action.id else { return }
                 self.cancelAutomationAction()
                 self.commandFailed = !succeeded
-                if !succeeded { self.refreshAutomation() }
+                if !succeeded {
+                    if case .seek = action.command, let observed = self.seekState.reject() { self.playback = observed }
+                    self.refreshAutomation()
+                }
+                else { self.refreshAfterCommand() }
             }
         }
     }
