@@ -377,6 +377,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/OpenVPN/OpenVPNSupport.swift
         Sources/Vorssaint/Services/OpenVPN/OpenVPNService.swift
         Sources/Vorssaint/Core/ScratchpadStrings.swift
+        Sources/Vorssaint/Core/TranslateStrings.swift
         Sources/Vorssaint/Core/FinderRenameStrings.swift
         Sources/Vorssaint/Core/CommandBarStrings.swift
         Sources/Vorssaint/Core/FeedbackStrings.swift
@@ -513,6 +514,9 @@ if (( TEST )); then
         Sources/Vorssaint/Services/CommandBar/CommandBarPreferences.swift
         Sources/Vorssaint/Services/CommandBar/CommandBarMath.swift
         Sources/Vorssaint/Services/CommandBar/CommandBarUnits.swift
+        Sources/Vorssaint/Services/Translate/TranslateSupport.swift
+        Sources/Vorssaint/Services/Translate/TranslateService.swift
+        Sources/Vorssaint/Services/CommandBar/CommandBarTranslate.swift
         Sources/Vorssaint/Services/CommandBar/CommandBarColors.swift
         Sources/Vorssaint/Services/CommandBar/CommandBarEmoji.swift
         Sources/Vorssaint/Services/CommandBar/CommandBarLinks.swift

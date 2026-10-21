@@ -7,7 +7,7 @@ import Foundation
 import CoreGraphics
 
 enum NotchModule: String, CaseIterable, Identifiable {
-    case controls, mixer, music, clipboard, captures, files, system, tools, calendar, notifications, timer, camera, downloads, scratchpad, agents, watch, openVPN
+    case controls, mixer, music, clipboard, captures, files, system, tools, calendar, notifications, timer, camera, downloads, scratchpad, agents, watch, openVPN, translate
     var id: String { rawValue }
 
     var symbol: String {
@@ -32,6 +32,7 @@ enum NotchModule: String, CaseIterable, Identifiable {
         case .agents: return "sparkles"
         case .watch: return "eye"
         case .openVPN: return "lock.shield"
+        case .translate: return AppFeature.translate.symbolName
         }
     }
 
@@ -55,6 +56,7 @@ enum NotchModule: String, CaseIterable, Identifiable {
         case .agents: return "g"
         case .watch: return "o"
         case .openVPN: return "e"
+        case .translate: return "l"
         }
     }
 
@@ -79,6 +81,7 @@ enum NotchModule: String, CaseIterable, Identifiable {
         case .agents: return AppFeature.notchAgents.isAvailable(in: defaults)
         case .watch: return AppFeature.notchWatch.isAvailable(in: defaults)
         case .openVPN: return AppFeature.openVPN.isAvailable(in: defaults)
+        case .translate: return AppFeature.translate.isAvailable(in: defaults)
         case .system:
             return [.monitorCPU, .monitorGPU, .monitorMemory, .monitorNetwork,
                     .monitorDisk, .monitorPower, .fanControl, .connectedDevices].contains { (feature: AppFeature) in
@@ -2514,7 +2517,7 @@ struct NotchGeometry: Equatable {
             case .openVPN:
                 contentHeight = min(budget, 160)
             // Lists and previews fill the chosen content budget.
-            case .mixer, .calendar, .clipboard, .captures, .files, .notifications, .downloads, .camera, .scratchpad, .watch:
+            case .mixer, .calendar, .clipboard, .captures, .files, .notifications, .downloads, .camera, .scratchpad, .watch, .translate:
                 contentHeight = budget
             }
         }

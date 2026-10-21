@@ -733,6 +733,7 @@ struct NotchView: View {
             case .agents: NotchAgentsView(size: pageSize)
             case .watch: NotchWatchView(size: pageSize)
             case .openVPN: NotchVPNView(size: pageSize)
+            case .translate: NotchTranslateView()
             }
         }
     }
@@ -1036,6 +1037,7 @@ extension NotchModule: PanelOrderItem {
         case .agents: return FeatureStrings.notchAgents(language).title
         case .watch: return FeatureStrings.notchWatch(language).title
         case .openVPN: return "OpenVPN"
+        case .translate: return FeatureStrings.translate(language).pageTitle
         }
     }
 }

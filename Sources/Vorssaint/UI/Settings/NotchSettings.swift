@@ -517,7 +517,7 @@ struct NotchSettings: View {
         case .watch:
             NotchWatchSettingsControls()
                 .toggleStyle(TrailingSwitchToggleStyle())
-        case .mixer, .system, .tools, .openVPN:
+        case .mixer, .system, .tools, .openVPN, .translate:
             EmptyView()
         }
     }
@@ -849,6 +849,7 @@ struct NotchSettings: View {
         case .agents: return .notchAgents
         case .watch: return .notchWatch
         case .openVPN: return .openVPN
+        case .translate: return .translate
         }
     }
 

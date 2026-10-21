@@ -189,6 +189,7 @@ struct CommandBarView: View {
             }
         }
         .frame(width: Self.width)
+        .translateHost()
         .environment(\.colorScheme, shownAs == .window ? colorScheme : .dark)
         .background(backdrop)
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))

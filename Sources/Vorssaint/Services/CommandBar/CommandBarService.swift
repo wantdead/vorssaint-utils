@@ -153,6 +153,9 @@ final class CommandBarService: ObservableObject {
     private var catalog: [CommandBarEntry] = [] { didSet { foldedSections[.catalog] = nil } }
     let scriptRunner = CommandBarScriptRunner()
     let fileSearch = CommandBarFileSearch()
+    /// Made by the first `tr` query, so a bar that never translates never
+    /// touches the translation service.
+    private var translation: CommandBarTranslation?
     /// Which row answered which few letters, for as long as the app runs. Not
     /// stored: the bar forgets everything typed into it when it goes.
     private var queryMemory = CommandBarQueryMemory()
@@ -573,6 +576,7 @@ final class CommandBarService: ObservableObject {
         deferredRowShortcut.cancel()
         scriptRunner.reset()
         fileSearch.reset()
+        if let translation { MainActor.assumeIsolated { translation.cancel() } }
         // Closing while listening for a combination must give every global key
         // back, or the whole app would go quiet until the next relaunch.
         if case .capturingShortcut = mode { endCapturingShortcut() }
@@ -1467,6 +1471,14 @@ final class CommandBarService: ObservableObject {
         if index { indexEntries() }
     }
 
+    @MainActor
+    private func makeTranslation() -> CommandBarTranslation {
+        let handle = CommandBarTranslation(service: .shared)
+        handle.onResult = { [weak self] in self?.refreshResults() }
+        translation = handle
+        return handle
+    }
+
     private func refreshResults() {
         guard !isTearingDown else { return }
         if presentationLifecycle.isLoadingHome {
@@ -1814,6 +1826,19 @@ final class CommandBarService: ObservableObject {
         // leads so Return opens it at once, the way a sum's answer does.
         let openURL = CommandBarCatalog.openURLEntry(for: trimmed, bar: bar)
 
+        // A `tr` query is answered by the Mac's own translation: the row leads
+        // at once and fills in when the answer lands.
+        var translateAnswer: CommandBarEntry?
+        if let text = CommandBarTranslate.text(in: trimmed) {
+            translateAnswer = MainActor.assumeIsolated {
+                let handle = translation ?? makeTranslation()
+                handle.request(text)
+                return CommandBarCatalog.translateEntry(for: handle.state(for: text), bar: bar)
+            }
+        } else if let translation {
+            MainActor.assumeIsolated { translation.cancel() }
+        }
+
         // A saved script answers the same way a sum does, once it has run:
         // the row leads, and Return copies what it printed. Same as any
         // other saved link, it stays quiet while the Links source is off or
@@ -1986,6 +2011,7 @@ final class CommandBarService: ObservableObject {
         if let answer, colorPreview == nil { result.append(answer) }
         if let openURL { result.append(openURL) }
         if let scriptAnswer { result.append(scriptAnswer) }
+        if let translateAnswer { result.append(translateAnswer) }
         for index in ranked {
             let entry = pool[index]
             if entry.id.hasPrefix("answer."),

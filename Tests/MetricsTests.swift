@@ -206,6 +206,7 @@ struct MetricsTests {
             ("wallpaper", { WallpaperContract.run(suite) }),
             ("openvpn", { OpenVPNTests.run(suite) }),
             ("emoji", { CommandBarEmojiContract.run(suite) }),
+            ("translate", { TranslateTests.run(suite) }),
         ]
         var selected = Set<String>()
         var listOnly = false

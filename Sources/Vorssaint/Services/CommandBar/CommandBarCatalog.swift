@@ -1619,6 +1619,35 @@ enum CommandBarCatalog {
         QuickToolHUD.show(icon: "tray.full", message: L10n.shared.s.shelfName)
     }
 
+    // MARK: - The translation answer
+
+    /// The row a `tr` query leads with. A translation copies on Return; every
+    /// other state says what is going on and leaves the bar open.
+    static func translateEntry(for state: TranslateState, bar: CommandBarFeatureStrings) -> CommandBarEntry {
+        let text = FeatureStrings.translate(L10n.shared.language)
+        let title: String
+        switch state {
+        case .result(let translation): title = translation
+        case .idle, .translating: title = "…"
+        case .needsLanguagePack: title = text.downloadNeeded
+        case .failed: title = text.failed
+        case .unavailable: title = text.unavailable
+        }
+        var translation: String?
+        if case .result(let value) = state { translation = value }
+        return CommandBarEntry(
+            id: "translate.result",
+            title: title,
+            subtitle: translation == nil ? text.pageTitle : bar.copyHint,
+            icon: .symbol(AppFeature.translate.symbolName),
+            isAnswer: true,
+            countsUsage: false,
+            keepsBarOpen: translation == nil,
+            run: { _ in
+                if let translation { copyAnswer(translation) }
+            })
+    }
+
     // MARK: - The calculator answer
 
     /// The pinned first row when what was typed is a sum or a conversion.

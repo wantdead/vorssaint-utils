@@ -93,6 +93,7 @@ struct NotchEditorStrings {
         case .agents: return agentsSummary
         case .watch: return watchSummary
         case .openVPN: return "OpenVPN Connect"
+        case .translate: return FeatureStrings.translate(L10n.shared.language).hubDescription
         }
     }
 }
