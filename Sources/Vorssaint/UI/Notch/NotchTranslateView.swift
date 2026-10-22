@@ -38,11 +38,11 @@ struct NotchTranslateView: View {
             ZStack(alignment: .topLeading) {
                 PlainTextEditor(text: $input, fontSize: PlainTextEditor.defaultFontSize,
                                 textColor: .white,
-                                textContainerInset: Self.editorInset) { view in
+                                textContainerInset: Self.editorInset, onCreate: { view in
                     view.insertionPointColor = .white
                     editor.view = view
                     DispatchQueue.main.async { focusEditor() }
-                }
+                })
                 if input.isEmpty {
                     Text(text.placeholder)
                         .font(.system(size: PlainTextEditor.defaultFontSize))
