@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
 enum WallpaperContract {
     static func run(_ suite: TestSuite) {
         WallpaperPickerContract.run(suite)
+        DynamicWallpaperContract.run(suite)
         let gallery = WallpaperGalleryLifecycle()
         let firstViewer = UUID()
         let secondViewer = UUID()

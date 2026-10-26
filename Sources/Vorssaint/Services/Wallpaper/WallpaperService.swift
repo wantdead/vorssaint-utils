@@ -6,7 +6,7 @@ import Combine
 import ImageIO
 import UniformTypeIdentifiers
 
-/// Apple stills + bookmarked own images. Apply-all hits WallpaperAgent's store.
+/// Apple stills, bookmarked own images and a scheduled day/night pair.
 final class WallpaperService: ObservableObject {
     static let shared = WallpaperService()
 
@@ -45,6 +45,15 @@ final class WallpaperService: ObservableObject {
     // lock-backed copy so detached apply-all can bail if a newer apply won
     private let applyGenerationLock = NSLock()
     private var applyGeneration = UUID()
+    private var automaticApplyToken: UUID?
+    private var dynamicDisplayID: NSNumber?
+    lazy var dynamic = DynamicWallpaperService(
+        apply: { [weak self] url, completion in
+            guard let self else { completion(false); return }
+            self.applyImage(url, automatically: true, completion: completion)
+        },
+        cancelApply: { [weak self] in self?.cancelAutomaticApply() }
+    )
 
     private init() {
         loadBookmarks()
@@ -86,11 +95,14 @@ final class WallpaperService: ObservableObject {
         set {
             UserDefaults.standard.set(newValue, forKey: DefaultsKey.wallpaperApplyAllDisplays)
             objectWillChange.send()
+            dynamic.syncWithPreferences(isAvailable: isAvailable)
         }
     }
 
     func syncWithPreferences() {
+        dynamic.syncWithPreferences(isAvailable: isAvailable)
         if !isAvailable {
+            openPanel?.cancel(nil)
             galleryLifecycle.endAll()
             let cancelled = UUID()
             applyToken = cancelled
@@ -115,6 +127,7 @@ final class WallpaperService: ObservableObject {
     }
 
     func suspend() {
+        dynamic.stop()
         stopAccessing()
     }
 
@@ -218,26 +231,59 @@ final class WallpaperService: ObservableObject {
 
     func apply(_ entry: WallpaperSupport.Entry) {
         guard isAvailable else { return }
+        dynamic.setMode(.off)
+        applyImage(entry.imageURL)
+    }
+
+    private func cancelAutomaticApply() {
+        dynamicDisplayID = nil
+        guard let token = automaticApplyToken, token == applyToken else { return }
+        let cancelled = UUID()
+        applyToken = cancelled
+        setApplyGeneration(cancelled)
+        automaticApplyToken = nil
+        isApplying = false
+        isDownloading = false
+    }
+
+    private func applyImage(_ imageURL: URL, automatically: Bool = false,
+                            completion: @escaping (Bool) -> Void = { _ in }) {
+        guard isAvailable else { completion(false); return }
         lastError = nil
-        let url = entry.imageURL.standardizedFileURL
-        let chosen = targetScreens()
+        let url = imageURL.standardizedFileURL
+        let chosen: [NSScreen]
+        if automatically, !applyAllDisplays {
+            let key = NSDeviceDescriptionKey("NSScreenNumber")
+            let existing = NSScreen.screens.filter {
+                $0.deviceDescription[key] as? NSNumber == dynamicDisplayID
+            }
+            chosen = existing.isEmpty ? targetScreens() : existing
+            dynamicDisplayID = chosen.first?.deviceDescription[key] as? NSNumber
+        } else {
+            chosen = targetScreens()
+        }
         guard !chosen.isEmpty else {
             lastError = FeatureStrings.wallpaper(L10n.shared.language).applyFailed
+            completion(false)
             return
         }
 
         let token = UUID()
         applyToken = token
+        automaticApplyToken = automatically ? token : nil
         setApplyGeneration(token)
         let applyAll = applyAllDisplays
         isApplying = true
         Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self else { completion(false); return }
+            var didApply = false
             defer {
                 if self.applyToken == token {
                     self.isApplying = false
                     self.isDownloading = false
+                    self.automaticApplyToken = nil
                 }
+                completion(didApply && self.applyToken == token)
             }
 
             let localOK = await self.ensureLocalFile(url, token: token)
@@ -262,6 +308,7 @@ final class WallpaperService: ObservableObject {
                 guard self.isAvailable, self.applyToken == token else { return }
                 if allOK || currentOK {
                     self.appliedPath = url.path
+                    didApply = true
                 }
                 // store patch miss keeps current-space apply; do not banner as failure
                 if !allOK && !currentOK {
@@ -272,6 +319,7 @@ final class WallpaperService: ObservableObject {
 
             if currentOK {
                 self.appliedPath = url.path
+                didApply = true
             } else {
                 self.lastError = FeatureStrings.wallpaper(L10n.shared.language).applyFailed
             }
@@ -399,6 +447,24 @@ final class WallpaperService: ObservableObject {
         }
     }
 
+    func chooseDynamicImage(for period: DynamicWallpaperSupport.Period, inNotch: Bool) {
+        guard isAvailable else { return }
+        if let openPanel { bringForward(openPanel, inNotch: inNotch); return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = WallpaperSupport.imageExtensions.compactMap {
+            UTType(filenameExtension: $0)
+        }
+        let text = DynamicWallpaperStrings.localized(L10n.shared.language)
+        panel.message = period == .day ? text.day : text.night
+        present(panel, inNotch: inNotch) { [weak self] urls in
+            guard let url = urls.first else { return }
+            self?.dynamic.setImage(url, for: period)
+        }
+    }
+
     // keeps the island open while a picker is up, like its other choosers
     var isChoosingSource: Bool { openPanel != nil }
 
@@ -418,7 +484,7 @@ final class WallpaperService: ObservableObject {
             if !inNotch { PanelInteractionState.shared.isPresentingPopoverModal = false }
             guard let self else { return }
             self.openPanel = nil
-            guard response == .OK else { return }
+            guard response == .OK, self.isAvailable else { return }
             completion(panel.urls)
         }
         bringForward(panel, inNotch: inNotch)

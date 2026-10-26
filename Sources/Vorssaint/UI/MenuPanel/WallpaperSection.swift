@@ -43,6 +43,7 @@ struct WallpaperSection: View {
                      collapsible: collapsible) {
             VStack(alignment: .leading, spacing: 10) {
                 controls
+                DynamicWallpaperControls(service: service, dynamic: service.dynamic)
                 if isRemovingSources, !service.removableChipSources.isEmpty {
                     sourceRemoveStrip
                 }
@@ -287,7 +288,7 @@ struct WallpaperSection: View {
     }
 }
 
-private struct WallpaperThumbButton: View {
+struct WallpaperThumbButton: View {
     let entry: WallpaperSupport.Entry
     let isApplied: Bool
     let thumbEpoch: Int

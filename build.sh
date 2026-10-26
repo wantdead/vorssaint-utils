@@ -385,6 +385,9 @@ if (( TEST )); then
         Sources/Vorssaint/Core/WallpaperStrings.swift
         Sources/Vorssaint/Core/OpenVPNStrings.swift
         Sources/Vorssaint/Services/Wallpaper/WallpaperSupport.swift
+        Sources/Vorssaint/Services/Wallpaper/DynamicWallpaperSupport.swift
+        Sources/Vorssaint/Services/Wallpaper/DynamicWallpaperService.swift
+        Sources/Vorssaint/Core/DynamicWallpaperStrings.swift
         Sources/Vorssaint/Services/OpenVPN/OpenVPNSupport.swift
         Sources/Vorssaint/Services/OpenVPN/OpenVPNService.swift
         Sources/Vorssaint/Core/ScratchpadStrings.swift

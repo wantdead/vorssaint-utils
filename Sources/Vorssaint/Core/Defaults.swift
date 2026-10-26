@@ -597,6 +597,11 @@ enum DefaultsKey {
     static let wallpaperApplyAllDisplays = "wallpaperApplyAllDisplays"
     static let wallpaperFilter = "wallpaperFilter"
     static let wallpaperOwnBookmarks = "wallpaperOwnBookmarks"
+    static let wallpaperDynamicMode = "wallpaperDynamicMode"
+    static let wallpaperDayStart = "wallpaperDayStart"
+    static let wallpaperNightStart = "wallpaperNightStart"
+    static let wallpaperDayBookmark = "wallpaperDayBookmark"
+    static let wallpaperNightBookmark = "wallpaperNightBookmark"
     // paths hidden from folder scans (does not delete files)
     static let wallpaperExcludedOwnPaths = "wallpaperExcludedOwnPaths"
     static let scratchpadShortcutEnabled = "scratchpadShortcutEnabled"
@@ -1803,6 +1808,9 @@ enum Defaults {
         DefaultsKey.cameraPreviewShortcut: GlobalShortcut.cameraPreviewDefault.storageValue,
         DefaultsKey.wallpaperApplyAllDisplays: true,
         DefaultsKey.wallpaperFilter: "all",
+        DefaultsKey.wallpaperDynamicMode: "off",
+        DefaultsKey.wallpaperDayStart: 420,
+        DefaultsKey.wallpaperNightStart: 1140,
         DefaultsKey.scratchpadShortcutEnabled: false,
         DefaultsKey.scratchpadShortcut: GlobalShortcut.scratchpadDefault.storageValue,
         DefaultsKey.commandBarShortcutEnabled: false,
