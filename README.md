@@ -220,7 +220,7 @@ See the [permissions guide](docs/PERMISSIONS.md) for which features need access 
 git clone https://github.com/vorssaint/vorssaint-utils.git
 cd vorssaint-utils
 ./build.sh --dev            # build the separate Developer variant
-./build.sh --dev --install  # install and launch it
+./Tools/dev.sh             # build, install, self-test and launch it
 ```
 
 Xcode Command Line Tools are the only requirement. The [contributing guide](CONTRIBUTING.md) covers the layout and conventions. Official builds come only from the maintainer: the GPL covers the source, while the Vorssaint name, icon and look are covered by [TRADEMARKS.md](TRADEMARKS.md), so forks need their own identity.

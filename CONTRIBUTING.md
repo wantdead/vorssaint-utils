@@ -18,8 +18,10 @@ cd vorssaint-utils
 ./build.sh --test
 ```
 
-To install and launch the separate Developer app, use `./build.sh --dev --install`.
+To build, install, self-test and launch the separate Developer app, use `./Tools/dev.sh`.
 It has its own preferences and permissions and does not replace the official app.
+Developer builds reuse unchanged app binaries, helpers and icons after checking their inputs, toolchain and output contents.
+Pass `--test-suite=notch` to run the island checks before installing.
 A plain `./build.sh` builds the optimized variant used by CI; its health check is
 `./build/Vorssaint --selftest`.
 

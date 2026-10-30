@@ -633,6 +633,7 @@ if (( TEST )); then
         ./Tests/PreferenceCleanupTests.sh || test_status=1
         ./Tests/UninstallSpacesTests.sh || test_status=1
         ./Tests/DeveloperInstallIsolationTests.sh || test_status=1
+        python3 Tests/BuildCacheTests.py || test_status=1
     fi
     discard_test_preferences || test_status=1
     exit $test_status
@@ -651,41 +652,90 @@ APP_OBJECT_DIR="build/objects/$EXECUTABLE"
 mkdir -p build "$APP_OBJECT_DIR"
 APP_OUTPUT_FILE_MAP="$APP_OBJECT_DIR/output-file-map.json"
 write_swift_output_file_map "$APP_OUTPUT_FILE_MAP" "$APP_OBJECT_DIR" "${APP_SOURCES[@]}"
+BUILD_CACHE_CONTEXT="$(swiftc --version) | $TARGET | $SDK | ${SDK_COMPAT_FLAGS[*]} | ${BUILD_VARIANT_FLAGS[*]}"
+BUILD_CACHE_DIR="$APP_OBJECT_DIR/artifacts"
+dev_cache_hit() {
+    (( DEV )) && python3 Tools/build-cache.py prepare "$@"
+}
+dev_cache_record() {
+    (( DEV )) || return 0
+    python3 Tools/build-cache.py record "$@"
+}
+APP_CACHE=(--manifest "$BUILD_CACHE_DIR/app.json"
+    --context "$BUILD_CACHE_CONTEXT ${APP_OPTIMIZATION_FLAGS[*]} ${VM_STATISTICS_COMPAT_FLAGS[*]} ${HID_EVENT_SYSTEM_FLAGS[*]}"
+    --inputs build.sh Tools/build-cache.py "${APP_SOURCES[@]}" Sources/VMStatisticsCompat Sources/HIDEventSystem "$SDK/SDKSettings.plist"
+    --outputs "build/$EXECUTABLE")
+if dev_cache_hit "${APP_CACHE[@]}"; then
+    echo "▸ Reusing Developer executable…"
+else
 # Without -j the driver compiles one file at a time, and without batch mode
 # each file's compiler parses the whole module again: a clean release took a
 # quarter of an hour. Batches share that work and run on every core, and the
 # optimization stays per file, as before.
 swiftc "${APP_OPTIMIZATION_FLAGS[@]}" -incremental -enable-batch-mode -j "$(sysctl -n hw.logicalcpu)" \
+    -module-cache-path "$APP_OBJECT_DIR/module-cache" \
     -output-file-map "$APP_OUTPUT_FILE_MAP" \
     -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${HID_EVENT_SYSTEM_FLAGS[@]}" \
     "${BUILD_VARIANT_FLAGS[@]}" \
     "${APP_SOURCES[@]}" -o "build/$EXECUTABLE"
+dev_cache_record "${APP_CACHE[@]}"
+fi
 
-echo "▸ Compiling protected fan helper…"
-swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" \
-    Sources/Vorssaint/Services/FanControl/FanControlSupport.swift \
-    Sources/Vorssaint/Services/FanControl/FanControlXPC.swift \
-    Sources/Vorssaint/Services/SystemMonitor/SMCClient.swift \
-    Sources/Vorssaint/Services/Metrics/TemperatureSensorSelector.swift \
-    Sources/Vorssaint/Services/FanControl/FanControlHardware.swift \
-    Sources/FanControlHelper/main.swift \
-    -o "build/$FAN_HELPER_ID"
+FAN_SOURCES=(
+    Sources/Vorssaint/Services/FanControl/FanControlSupport.swift
+    Sources/Vorssaint/Services/FanControl/FanControlXPC.swift
+    Sources/Vorssaint/Services/SystemMonitor/SMCClient.swift
+    Sources/Vorssaint/Services/Metrics/TemperatureSensorSelector.swift
+    Sources/Vorssaint/Services/FanControl/FanControlHardware.swift
+    Sources/FanControlHelper/main.swift
+)
+FAN_CACHE=(--manifest "$BUILD_CACHE_DIR/fan.json" --context "$BUILD_CACHE_CONTEXT -O"
+    --inputs build.sh Tools/build-cache.py "${FAN_SOURCES[@]}" "$SDK/SDKSettings.plist" --outputs "build/$FAN_HELPER_ID")
+if dev_cache_hit "${FAN_CACHE[@]}"; then
+    echo "▸ Reusing protected fan helper…"
+else
+    echo "▸ Compiling protected fan helper…"
+    swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" \
+        "${FAN_SOURCES[@]}" -o "build/$FAN_HELPER_ID"
+    dev_cache_record "${FAN_CACHE[@]}"
+fi
 "build/$FAN_HELPER_ID" --selftest
 
-echo "▸ Compiling Now Playing adapter…"
-swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" -emit-library \
-    -module-name VorssaintNowPlaying \
-    Sources/NowPlayingAdapter/NowPlayingAdapter.swift \
-    Sources/NowPlayingAdapter/NowPlayingQueue.swift \
-    Sources/NowPlayingAdapter/NowPlayingSelection.swift \
-    Sources/Vorssaint/Services/Notch/NotchPlaybackSource.swift \
-    Sources/Vorssaint/Services/Notch/NotchPlaybackCommand.swift \
-    -o "build/$NOW_PLAYING_ADAPTER"
+ADAPTER_SOURCES=(
+    Sources/NowPlayingAdapter/NowPlayingAdapter.swift
+    Sources/NowPlayingAdapter/NowPlayingQueue.swift
+    Sources/NowPlayingAdapter/NowPlayingSelection.swift
+    Sources/Vorssaint/Services/Notch/NotchPlaybackSource.swift
+    Sources/Vorssaint/Services/Notch/NotchPlaybackCommand.swift
+)
+ADAPTER_CACHE=(--manifest "$BUILD_CACHE_DIR/now-playing.json" --context "$BUILD_CACHE_CONTEXT -O -emit-library VorssaintNowPlaying"
+    --inputs build.sh Tools/build-cache.py "${ADAPTER_SOURCES[@]}" "$SDK/SDKSettings.plist" --outputs "build/$NOW_PLAYING_ADAPTER")
+if dev_cache_hit "${ADAPTER_CACHE[@]}"; then
+    echo "▸ Reusing Now Playing adapter…"
+else
+    echo "▸ Compiling Now Playing adapter…"
+    swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" -emit-library \
+        -module-name VorssaintNowPlaying "${ADAPTER_SOURCES[@]}" -o "build/$NOW_PLAYING_ADAPTER"
+    dev_cache_record "${ADAPTER_CACHE[@]}"
+fi
 
+ICON_CACHE=(--manifest "$BUILD_CACHE_DIR/icons.json" --context "$BUILD_CACHE_CONTEXT"
+    --inputs build.sh Tools/build-cache.py Tools/MakeIcon.swift Resources/Brand/AppIcon-Default.png Resources/Brand/logo.png
+    --outputs build/AppIcon.icns build/MenuBarIcon.png build/MenuBarIcon@2x.png build/BrandMark.png)
+if dev_cache_hit "${ICON_CACHE[@]}"; then
+    echo "▸ Reusing app icons…"
+else
 echo "▸ Generating app icon…"
 swift Tools/MakeIcon.swift build/AppIcon.iconset
 xattr -c -r build/AppIcon.iconset build/AppIcon.icns build/MenuBarIcon.png build/MenuBarIcon@2x.png build/BrandMark.png 2>/dev/null || true
+dev_cache_record "${ICON_CACHE[@]}"
+fi
 ACTOOL_BIN="$(xcrun --find actool 2>/dev/null || true)"
+CATALOG_CACHE=(--manifest "$BUILD_CACHE_DIR/catalog.json" --context "$BUILD_CACHE_CONTEXT $ACTOOL_BIN"
+    --inputs build.sh Tools/build-cache.py Resources/Brand/AppIcon.icon "$SDK/SDKSettings.plist" --outputs build/Assets.car)
+if dev_cache_hit "${CATALOG_CACHE[@]}"; then
+    echo "▸ Reusing adaptive icon catalog…"
+else
 ICON_TMP="$(mktemp -d)"
 ADAPTIVE_SKIP=""
 if [[ -z "$ACTOOL_BIN" ]]; then
@@ -706,6 +756,7 @@ else
             --output-partial-info-plist "$ICON_TMP/partial-info.plist" \
             >"$ICON_TMP/actool.log" 2>&1 && [[ -s "$ICON_TMP/catalog/Assets.car" ]]; then
         mv "$ICON_TMP/catalog/Assets.car" build/Assets.car
+        dev_cache_record "${CATALOG_CACHE[@]}"
     else
         ADAPTIVE_SKIP="actool could not compile the catalog"
     fi
@@ -713,6 +764,7 @@ fi
 if [[ -n "$ADAPTIVE_SKIP" ]]; then
     cp "$ICON_TMP/actool.log" build/actool-failure.log 2>/dev/null || true
     echo "  adaptive icon skipped: $ADAPTIVE_SKIP (Dock falls back to AppIcon.icns)"
+fi
 fi
 echo "▸ Assembling and signing bundle…"
 STAGE_TMP="$(mktemp -d)"

@@ -55,6 +55,9 @@ if (( full_tests )); then
 else
     ./build.sh --test-suite=notch
 fi
-./build.sh --dev
-./build/VorssaintDeveloper --selftest
-if (( install )); then ./build.sh --dev --install; fi
+if (( install )); then
+    ./Tools/dev.sh
+else
+    ./build.sh --dev
+    ./build/VorssaintDeveloper --selftest
+fi
