@@ -4,6 +4,27 @@
 import Foundation
 
 struct NotchCalendarStrings {
+    static func relativeCountdown(_ duration: String, ongoing: Bool, language: AppLanguage) -> String {
+        let formats: (String, String)
+        switch language {
+        case .enUS: formats = ("in %@", "ends in %@")
+        case .ptBR: formats = ("em %@", "termina em %@")
+        case .es: formats = ("en %@", "termina en %@")
+        case .sk: formats = ("o %@", "končí o %@")
+        case .tr: formats = ("%@ sonra", "%@ sonra biter")
+        case .ru: formats = ("через %@", "конец через %@")
+        case .de: formats = ("in %@", "endet in %@")
+        case .fr: formats = ("dans %@", "fin dans %@")
+        case .it: formats = ("tra %@", "finisce tra %@")
+        case .ja: formats = ("%@後", "終了まで%@")
+        case .ko: formats = ("%@ 후", "%@ 후 종료")
+        case .uk: formats = ("через %@", "кінець через %@")
+        case .zhHans: formats = ("%@后", "%@后结束")
+        case .zhTW, .zhHK: formats = ("%@後", "%@後結束")
+        }
+        return String(format: ongoing ? formats.1 : formats.0, duration)
+    }
+
     let title: String
     let description: String
     let permission: String

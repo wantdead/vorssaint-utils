@@ -309,6 +309,21 @@ enum NotchCalendarSupport {
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 
+    /// Minute precision at rest; seconds appear only in the final minute.
+    static func capsuleCountdownText(_ countdown: NotchCalendarCountdown, now: Date, language: AppLanguage) -> String {
+        let seconds = max(0, ceil(countdown.target.timeIntervalSince(now)))
+        let units: Set<Duration.UnitsFormatStyle.Unit> = seconds >= 60 ? [.minutes] : [.seconds]
+        let duration = Duration.seconds(seconds).formatted(.units(
+            allowed: units, width: .narrow,
+            fractionalPart: .hide(rounded: .up)).locale(language.formattingLocale()))
+        return NotchCalendarStrings.relativeCountdown(duration, ongoing: countdown.ongoing, language: language)
+    }
+
+    static func capsuleTimeRange(_ event: NotchCalendarEvent, locale: Locale) -> String {
+        let format = Date.FormatStyle.dateTime.hour().minute().locale(locale)
+        return event.start.formatted(format) + "–" + event.end.formatted(format)
+    }
+
     static func countdownAccessibilityText(until start: Date, now: Date, locale: Locale) -> String {
         let seconds = max(0, ceil(start.timeIntervalSince(now)))
         return Duration.seconds(seconds).formatted(.units(

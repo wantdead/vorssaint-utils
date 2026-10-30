@@ -411,6 +411,15 @@ enum NotchLayout {
     /// activity's wings, closer to the phone's proportions.
     static let capsuleRestingAspect: CGFloat = 5
 
+    /// A capsule's width moves in fours. Centred, its ends then sit on a whole
+    /// pixel even where the display scales a 2x backing store to three
+    /// quarters, which puts only every second point on a pixel.
+    static let capsuleWidthStep: CGFloat = 4
+
+    static func capsuleWidth(atLeast width: CGFloat) -> CGFloat {
+        (width / capsuleWidthStep).rounded(.up) * capsuleWidthStep
+    }
+
     /// The capsule of a surface `rect` in size: `gap` inside its top and
     /// bottom, and as wide as the hanging island's body between its
     /// shoulders, which content and floating controls are laid out around.
@@ -951,6 +960,27 @@ struct NotchActivitySelection {
 /// never shorter than the bare capsule, never wider than its kind allows or
 /// than the menu bar leaves free. The views draw with these same measures.
 enum NotchCapsuleLayout {
+    /// External activities fit their text while retaining a readable second line.
+    static func informativeSurface(content: CGFloat, leading: CGFloat = endPadding,
+                                   maximum: CGFloat = 520, geometry: NotchGeometry) -> CGSize {
+        let fitted = surface(content: content, leading: leading, maximum: maximum, geometry: geometry)
+        return CGSize(width: fitted.width, height: max(geometry.stripHeight, 32 + (geometry.floatingGap ?? 0) * 2))
+    }
+
+    static func informativeMusicContent(title: String?, artist: String?, geometry: NotchGeometry) -> CGFloat {
+        let label = max(width(title ?? "", font: titleFont), width(artist ?? "", font: smallFont))
+        return artworkSide(geometry) + spacing + min(190, label)
+    }
+
+    static func informativeHalfWidth(_ size: CGSize, geometry: NotchGeometry) -> CGFloat {
+        max(0, (size.width - side(geometry) * 2 - endPadding * 2 - 21) / 2)
+    }
+
+    static func informativeCalendarContent(title: String, time: String, countdown: String) -> CGFloat {
+        max(calendarDotSide + spacing + width(title, font: titleFont),
+            width(NotchAgentSupport.readingShape(countdown), font: smallFont) + spacing + width(time, font: smallFont))
+    }
+
     /// From the capsule's round end to its first and last content.
     static let endPadding: CGFloat = 8
     /// Between a mark and its text.
@@ -1035,8 +1065,12 @@ enum NotchCapsuleLayout {
     }
 
     /// A cover sits in the capsule's round end, concentric with it.
-    static func artworkSide(_ geometry: NotchGeometry) -> CGFloat { max(0, geometry.stripBodyHeight - 6) }
-    static func artworkInset(_ geometry: NotchGeometry) -> CGFloat { (geometry.stripBodyHeight - artworkSide(geometry)) / 2 }
+    static func artworkSide(_ geometry: NotchGeometry) -> CGFloat {
+        geometry.informativeActivities ? 26 : max(0, geometry.stripBodyHeight - 6)
+    }
+    static func artworkInset(_ geometry: NotchGeometry) -> CGFloat {
+        geometry.informativeActivities ? 3 : (geometry.stripBodyHeight - artworkSide(geometry)) / 2
+    }
 
     /// The capsule's side within its surface, as `capsuleBody` places it.
     static func side(_ geometry: NotchGeometry) -> CGFloat { NotchLayout.shoulder(height: geometry.stripHeight) }
@@ -1056,7 +1090,7 @@ enum NotchCapsuleLayout {
         let side = side(geometry)
         let resting = geometry.restingSize(showsContent: false).width
         let limit = max(resting, min(maximum + side * 2, availableWidth(geometry)).rounded(.down))
-        let wanted = (max(0, content.isFinite ? content : 0) + leading + trailing + side * 2).rounded(.up)
+        let wanted = NotchLayout.capsuleWidth(atLeast: max(0, content.isFinite ? content : 0) + leading + trailing + side * 2)
         return CGSize(width: min(limit, max(resting, wanted)), height: geometry.stripHeight)
     }
 
@@ -1103,7 +1137,12 @@ enum NotchCapsuleLayout {
 
     /// Playing music: the cover in the round end, the title and the bars.
     /// Without a title, only the cover and the bars, at the capsule's ends.
-    static func musicSurface(title: String?, geometry: NotchGeometry) -> CGSize {
+    static func musicSurface(title: String?, geometry: NotchGeometry, artist: String? = nil) -> CGSize {
+        if geometry.informativeActivities {
+            return informativeSurface(content: informativeMusicContent(title: title, artist: artist, geometry: geometry)
+                                        + endPadding + barsWidth,
+                                      leading: artworkInset(geometry), maximum: Maximum.music, geometry: geometry)
+        }
         let named = title.map { endPadding + width($0, font: titleFont) + endPadding } ?? endPadding
         let content = artworkSide(geometry) + named + barsWidth
         return surface(content: content, leading: artworkInset(geometry), maximum: Maximum.music, geometry: geometry)
@@ -1146,7 +1185,16 @@ enum NotchCapsuleLayout {
     /// mark, then the event's dot and countdown. Its title moves to the
     /// tooltip and VoiceOver.
     static func calendarPairSurface(companion: NotchCompactActivity, workingAgents: Int, downloadPercent: Bool,
-                                    geometry: NotchGeometry, language: AppLanguage) -> CGSize {
+                                    geometry: NotchGeometry, language: AppLanguage, title: String = "", time: String = "",
+                                    countdown: String = "", musicTitle: String? = nil, musicArtist: String? = nil) -> CGSize {
+        if geometry.informativeActivities {
+            let mark = companion == .music
+                ? informativeMusicContent(title: musicTitle, artist: musicArtist, geometry: geometry)
+                : timerMarkWidth(companion: companion, workingAgents: workingAgents, downloadPercent: downloadPercent,
+                                 geometry: geometry, language: language)
+            let half = min(240, max(mark, informativeCalendarContent(title: title, time: time, countdown: countdown)))
+            return informativeSurface(content: half * 2 + 21, geometry: geometry)
+        }
         let mark = timerMarkWidth(companion: companion, workingAgents: workingAgents, downloadPercent: downloadPercent,
                                   geometry: geometry, language: language)
         return surface(content: mark + markGap(.calendar) + calendarClockWidth,
@@ -1182,7 +1230,11 @@ enum NotchCapsuleLayout {
 
     /// An event's color and title, then its countdown at its widest and the
     /// time it starts or ends.
-    static func calendarSurface(title: String, time: String, geometry: NotchGeometry) -> CGSize {
+    static func calendarSurface(title: String, time: String, geometry: NotchGeometry, countdown: String = "") -> CGSize {
+        if geometry.informativeActivities {
+            return informativeSurface(content: informativeCalendarContent(title: title, time: time, countdown: countdown),
+                                      maximum: Maximum.calendar, geometry: geometry)
+        }
         let content = calendarDotSide + spacing + width(title, font: titleFont) + groupSpacing
             + width("00:00", font: readingFont) + markSpacing + width(time, font: smallFont)
         return surface(content: content, maximum: Maximum.calendar, geometry: geometry)
@@ -2227,6 +2279,7 @@ struct NotchNoticeWings: Equatable {
 
 struct NotchGeometry: Equatable {
     let screen: CGRect
+    let isExternalDisplay: Bool
     /// How far the island's centre sits right of the camera's: a closed
     /// notice reaches further toward its wider side. Zero everywhere else.
     var surfaceShift: CGFloat = 0
@@ -2273,8 +2326,9 @@ struct NotchGeometry: Equatable {
          menuBarHeight: CGFloat = 24, compactSideRoom: CGFloat? = nil,
          customWidth: Double = NotchSize.defaultWidth, customHeight: Double = NotchSize.defaultHeight,
          cameraFit: NotchCameraFit = .zero, silhouette: NotchSilhouette = .notch, capsuleFit: NotchCapsuleFit = .zero,
-         hideMenuBarGap: Bool = false, outline: Bool = false, barEdge: CGFloat = 0) {
+         hideMenuBarGap: Bool = false, outline: Bool = false, barEdge: CGFloat = 0, isExternalDisplay: Bool = false) {
         self.screen = screen
+        self.isExternalDisplay = isExternalDisplay
         self.layout = layout
         self.customWidth = NotchSize.clamped(customWidth, to: NotchSize.widthRange, fallback: NotchSize.defaultWidth)
         self.customHeight = NotchSize.clamped(customHeight, to: NotchSize.heightRange, fallback: NotchSize.defaultHeight)
@@ -2323,9 +2377,12 @@ struct NotchGeometry: Equatable {
     /// The island floats in the menu bar instead of hanging from the top edge.
     var floats: Bool { floatingGap != nil }
 
+    var informativeActivities: Bool { floats && isExternalDisplay }
+
     func hasSameMenuBar(as other: NotchGeometry) -> Bool {
         screen == other.screen && cameraWidth == other.cameraWidth
             && menuBarHeight == other.menuBarHeight && isNotched == other.isNotched
+            && isExternalDisplay == other.isExternalDisplay
     }
 
     /// Below a camera, or below the space it would take. A capsule has
@@ -2419,7 +2476,7 @@ struct NotchGeometry: Equatable {
         guard floats else { return CGSize(width: cameraWidth, height: cameraHeight) }
         let shoulders = NotchLayout.shoulder(height: stripHeight) * 2
         let capsule = max(NotchLayout.capsuleRestingAspect * stripBodyHeight + capsuleWidthFit, stripBodyHeight * 2)
-        return CGSize(width: min(cameraWidth, (capsule + shoulders).rounded()), height: cameraHeight)
+        return CGSize(width: min(cameraWidth, NotchLayout.capsuleWidth(atLeast: capsule + shoulders)), height: cameraHeight)
     }
     /// Full screen and the Lock Screen remove outline clearance while keeping
     /// the chosen menu-bar coverage and manual fit.

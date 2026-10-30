@@ -1175,6 +1175,7 @@ def main():
           + declaration(notch, "    private func switchCompactSelection(").replace("private func", "func", 1)
           + declaration(notch, "    func refreshPresentation(")
               .replace("NotchSupport.coversMenus()", "UserDefaults.standard.coversMenus")
+          + declaration(notch, "    func activateCalendarCapsule(")
           + declaration(notch, "    private func applyMenuSpace(").replace("private func", "func", 1)
           + declaration(notch, "    func presentCapture(")
               .replace("content: AnyView, actions: AnyView? = nil", "content: Bool, actions: Bool? = nil")

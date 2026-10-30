@@ -4,8 +4,8 @@
 import SwiftUI
 
 // A floating capsule has no camera inside it, so what the closed island shows
-// runs in one row from one round end to the other, and the capsule is as
-// wide as that row. The service measures each row with NotchCapsuleLayout,
+// runs from one round end to the other. External displays can name each
+// activity above its detail. The service measures each row with NotchCapsuleLayout,
 // and these views draw it with the same measures. A click anywhere on the
 // capsule opens the island, on the activity's page when it shows one.
 
@@ -24,8 +24,66 @@ private struct NotchCapsuleRow<Content: View>: View {
         content()
             .padding(.leading, side + leading)
             .padding(.trailing, side + trailing)
-            .frame(width: size.width, height: geometry.stripHeight)
+            .frame(width: size.width, height: size.height)
             .foregroundStyle(.white)
+    }
+}
+
+/// A persistent activity name and its quieter second line.
+private struct NotchCapsuleActivityLabel: View {
+    let title: String
+    let detail: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title).font(.system(size: 12, weight: .semibold))
+            if let detail, !detail.isEmpty {
+                Text(detail).font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.62))
+            }
+        }
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct NotchCapsuleExternalCalendarContent<Companion: View>: View {
+    let title: String
+    let timeRange: String
+    let countdown: String
+    let countdownTint: Color
+    let calendarColor: Color
+    let hasCompanion: Bool
+    let companionWidth: CGFloat?
+    @ViewBuilder let companion: () -> Companion
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if hasCompanion {
+                companion().frame(width: companionWidth, alignment: .leading)
+                Rectangle().fill(.white.opacity(0.16)).frame(width: 1, height: 22)
+            }
+            VStack(alignment: hasCompanion ? .trailing : .center, spacing: 1) {
+                HStack(spacing: 6) {
+                    Circle().fill(calendarColor).frame(width: 6, height: 6)
+                        .overlay { Circle().strokeBorder(.white.opacity(0.5), lineWidth: 0.5) }
+                    Text(title).font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1).truncationMode(.tail)
+                }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        Text(countdown).foregroundStyle(countdownTint)
+                        Text(timeRange).foregroundStyle(.white.opacity(0.55))
+                    }
+                    Text(countdown).foregroundStyle(countdownTint)
+                }
+                .font(.system(size: 10, weight: .medium)).monospacedDigit()
+                .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: hasCompanion ? .trailing : .center)
+            .clipped()
+        }
     }
 }
 
@@ -280,8 +338,10 @@ struct NotchCapsuleMusicStrip: View {
         // A song is named as it starts and while the pointer rests on its
         // cover, and a strip on its way out leaves as it was. Otherwise the
         // cover and bars say enough.
-        let named = service.capsuleMusicTitleShown || (live ? service.musicStripNamesSong : snapshot?.namesSong == true)
-        NotchCapsuleRow(size: size ?? CapsuleLayout.musicSurface(title: named ? title : nil, geometry: geometry),
+        let named = geometry.informativeActivities || service.capsuleMusicTitleShown
+            || (live ? service.musicStripNamesSong : snapshot?.namesSong == true)
+        NotchCapsuleRow(size: size ?? CapsuleLayout.musicSurface(title: named ? title : nil, geometry: geometry,
+                                                               artist: playback?.track.artist),
                         geometry: geometry, leading: 0, trailing: 0) {
             HStack(spacing: 0) {
                 NotchMusicCover(artwork: artwork, side: side, radius: side / 2, source: playback?.track)
@@ -290,7 +350,9 @@ struct NotchCapsuleMusicStrip: View {
                     .contentShape(Rectangle())
                     .onHover { if live { service.hoverMusicStrip(.cover, entered: $0) } }
                 Group {
-                    if named { Text(title).capsuleTitle().truncationMode(.tail).transition(.opacity) }
+                    if geometry.informativeActivities {
+                        NotchCapsuleActivityLabel(title: title, detail: playback?.track.artist)
+                    } else if named { Text(title).capsuleTitle().truncationMode(.tail).transition(.opacity) }
                     else { Color.clear }
                 }
                 .padding(.horizontal, CapsuleLayout.endPadding)
@@ -572,6 +634,7 @@ struct NotchCapsuleCalendarStrip: View {
     /// Another display's capsule, when the island shows on every display.
     var displayGeometry: NotchGeometry? = nil
     @ObservedObject private var calendar = NotchCalendarService.shared
+    @ObservedObject private var music = NotchMusicService.shared
     @ObservedObject private var l10n = L10n.shared
 
     private var text: NotchCalendarStrings { FeatureStrings.notchCalendar(l10n.language) }
@@ -590,8 +653,11 @@ struct NotchCapsuleCalendarStrip: View {
                 let title = CapsuleLayout.calendarTitle(countdown, language: l10n.language)
                 let remaining = NotchCalendarSupport.countdownText(until: countdown.target, now: context.date)
                 NotchCapsuleRow(size: size, geometry: geometry,
-                                leading: companion == .music ? CapsuleLayout.artworkInset(geometry) : CapsuleLayout.endPadding) {
-                    if let companion {
+                                leading: companion == .music && !geometry.informativeActivities
+                                    ? CapsuleLayout.artworkInset(geometry) : CapsuleLayout.endPadding) {
+                    if geometry.informativeActivities {
+                        informativeContent(countdown, companion: companion, title: title, now: context.date)
+                    } else if let companion {
                         // Paired, what shares the capsule takes the title's place,
                         // and the title moves to the tooltip and VoiceOver.
                         HStack(spacing: CapsuleLayout.markGap(.calendar)) {
@@ -624,9 +690,38 @@ struct NotchCapsuleCalendarStrip: View {
                 .accessibilityValue(NotchCalendarSupport.countdownAccessibilityText(
                     until: countdown.target, now: context.date, locale: l10n.language.formattingLocale()))
                 .accessibilityHint(FeatureStrings.notch(l10n.language).open)
+                .accessibilityActions {
+                    if geometry.informativeActivities, companion == .music {
+                        Button(FeatureStrings.radialMenu(l10n.language).mediaNowPlaying) { service.openActivity(.music) }
+                    }
+                }
                 .help(title)
             }
             .accessibilityIdentifier("notch.calendarCountdown")
+        }
+    }
+
+    private func informativeContent(_ countdown: NotchCalendarCountdown, companion: NotchCompactActivity?,
+                                    title: String, now: Date) -> some View {
+        NotchCapsuleExternalCalendarContent(
+            title: title,
+            timeRange: NotchCalendarSupport.capsuleTimeRange(countdown.event, locale: l10n.language.formattingLocale()),
+            countdown: NotchCalendarSupport.capsuleCountdownText(countdown, now: now, language: l10n.language),
+            countdownTint: countdown.ongoing ? .mint
+                : countdown.target.timeIntervalSince(now) <= 300 ? .orange : .white.opacity(0.8),
+            calendarColor: countdown.event.color.color, hasCompanion: companion != nil,
+            companionWidth: companion != nil ? CapsuleLayout.informativeHalfWidth(size, geometry: geometry) : nil) {
+            if let companion {
+                HStack(spacing: CapsuleLayout.spacing) {
+                    NotchCapsuleCompanionMark(companion: companion, geometry: geometry)
+                    if companion == .music, CapsuleLayout.informativeHalfWidth(size, geometry: geometry)
+                        >= CapsuleLayout.artworkSide(geometry) + 24 {
+                        NotchCapsuleActivityLabel(
+                            title: music.playback?.track.title ?? FeatureStrings.radialMenu(l10n.language).mediaNowPlaying,
+                            detail: music.playback?.track.artist)
+                    }
+                }
+            }
         }
     }
 

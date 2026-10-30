@@ -22,10 +22,69 @@ enum NotchCapsuleTests {
         targetContracts(suite)
         fitContracts(suite)
         symbolContracts(suite)
+        externalActivityContracts(suite)
     }
 
     private static let screen = CGRect(x: -1920, y: -100, width: 1920, height: 1080)
     private typealias Layout = NotchCapsuleLayout
+
+    private static func externalActivityContracts(_ suite: TestSuite) {
+        for room: CGFloat in [70, 140, 300] {
+            let external = NotchGeometry(screen: screen, safeAreaTop: 0, cameraWidth: 0, menuBarHeight: 24,
+                                         compactSideRoom: room, silhouette: .capsule, isExternalDisplay: true)
+            let single = Layout.musicSurface(title: nil, geometry: external)
+            let paired = Layout.calendarPairSurface(companion: .music, workingAgents: 0, downloadPercent: false,
+                                                    geometry: external, language: .enUS)
+            suite.expect(external.informativeActivities && single.height - (external.floatingGap ?? 0) * 2 >= 32,
+                         "an external capsule reserves two readable lines")
+            suite.expect(paired.width <= Layout.availableWidth(external) && single.width <= paired.width,
+                         "informative activities respect the menus, including narrow external displays")
+            let longMusic = Layout.musicSurface(title: String(repeating: "Long title ", count: 30), geometry: external)
+            suite.expect(longMusic.width >= single.width && longMusic.width <= Layout.availableWidth(external),
+                         "external capsules grow with their content within the available width")
+        }
+        let wide = NotchGeometry(screen: screen, safeAreaTop: 0, cameraWidth: 0, menuBarHeight: 24,
+                                 compactSideRoom: 300, silhouette: .capsule, isExternalDisplay: true)
+        let shortSong = Layout.musicSurface(title: "One Man Show", geometry: wide, artist: "Aidan")
+        let longSong = Layout.musicSurface(title: String(repeating: "A long song title ", count: 8), geometry: wide)
+        let calendarOnly = Layout.calendarSurface(title: "AI Gateway", time: "14:00–14:30", geometry: wide, countdown: "in 18m")
+        let pair = Layout.calendarPairSurface(companion: .music, workingAgents: 0, downloadPercent: false,
+                                              geometry: wide, language: .enUS, title: "AI Gateway", time: "14:00–14:30",
+                                              countdown: "in 18m", musicTitle: "One Man Show", musicArtist: "Aidan")
+        suite.expect(shortSong.width < longSong.width && calendarOnly.width < 250,
+                     "short songs and standalone events fit their content instead of a fixed activity width")
+        let half = Layout.informativeHalfWidth(pair, geometry: wide)
+        suite.expect(abs(half * 2 + 21 + Layout.side(wide) * 2 + Layout.endPadding * 2 - pair.width) < 0.01,
+                     "paired activities have equal halves and equal outside padding around a centered divider")
+        suite.expect(pair.width > calendarOnly.width && pair.width < 440,
+                     "a short music and calendar pair does not reserve a 520-point capsule")
+        let builtIn = capsule(bar: 24)
+        let simulated = NotchGeometry(screen: screen, safeAreaTop: 0, cameraWidth: 0, isExternalDisplay: true)
+        let physical = NotchGeometry(screen: screen, safeAreaTop: 32, cameraWidth: 180,
+                                     silhouette: .capsule, isExternalDisplay: true)
+        suite.expect(!builtIn.informativeActivities && !simulated.informativeActivities && !physical.informativeActivities,
+                     "built-in screens and hanging notch layouts keep their existing presentation")
+
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let event = NotchCalendarEvent(id: "external", title: "Platform sync", calendar: "Work",
+                                       start: now.addingTimeInterval(41 * 60 + 17), end: now.addingTimeInterval(3600),
+                                       allDay: false, location: "")
+        let upcoming = NotchCalendarCountdown(event: event, ongoing: false)
+        let ongoing = NotchCalendarCountdown(event: event, ongoing: true)
+        let minutes = NotchCalendarSupport.capsuleCountdownText(upcoming, now: now, language: .enUS)
+        suite.expect(minutes.hasPrefix("in ") && minutes.contains("42") && !minutes.contains(":"),
+                     "upcoming events name the wait and round up to the next minute")
+        let seconds = NotchCalendarSupport.capsuleCountdownText(upcoming, now: event.start.addingTimeInterval(-59), language: .enUS)
+        suite.expect(seconds.hasPrefix("in ") && seconds.contains("59"), "seconds appear in the final minute")
+        suite.expect(NotchCalendarSupport.capsuleCountdownText(ongoing, now: now, language: .enUS).hasPrefix("ends in "),
+                     "an ongoing meeting clearly counts down to its end")
+        for language in AppLanguage.allCases {
+            let before = NotchCalendarSupport.capsuleCountdownText(upcoming, now: now, language: language)
+            let during = NotchCalendarSupport.capsuleCountdownText(ongoing, now: now, language: language)
+            suite.expect(!before.isEmpty && !during.isEmpty && before != during,
+                         "external countdown states are localized for \(language.rawValue)")
+        }
+    }
 
     private static func capsule(bar: CGFloat, room: CGFloat? = 300, layout: NotchSize = .spacious,
                                 customWidth: Double = NotchSize.defaultWidth,
@@ -148,7 +207,8 @@ enum NotchCapsuleTests {
         }
         let resting = standard.restingSize(showsContent: false)
         suite.expect(resting.width < standard.cameraWidth && resting.width == resting.width.rounded()
-                     && abs(body(resting, standard).width - NotchLayout.capsuleRestingAspect * 20) < 1,
+                     && resting.width.truncatingRemainder(dividingBy: NotchLayout.capsuleWidthStep) == 0
+                     && abs(body(resting, standard).width - NotchLayout.capsuleRestingAspect * 20) < NotchLayout.capsuleWidthStep,
                      "bare at rest the capsule is short, on whole points")
     }
 
@@ -210,7 +270,8 @@ enum NotchCapsuleTests {
         let volume = Layout.surface(content: Layout.noticeContent(title: "Volume", detail: "60%", level: true),
                                     maximum: Layout.Maximum.notice, geometry: geometry)
         suite.expect(abs(visible(volume) - (Layout.noticeContent(title: "Volume", detail: "60%", level: true)
-                                            + Layout.endPadding * 2)) < 1,
+                                            + Layout.endPadding * 2)) < NotchLayout.capsuleWidthStep
+                     && visible(volume) + side * 2 == NotchLayout.capsuleWidth(atLeast: visible(volume) + side * 2),
                      "a level notice is as wide as its mark, meter and reading, with no band of empty black")
         for value in 0...100 {
             let other = Layout.surface(content: Layout.noticeContent(title: "Volume", detail: "\(value)%", level: true),
@@ -435,7 +496,7 @@ enum NotchCapsuleTests {
                                      "a taller or shorter capsule grows from its top edge and keeps its margins")
                         let aspect = NotchLayout.capsuleRestingAspect
                         let expectedWidth = max(aspect * geometry.stripBodyHeight + fit.width, geometry.stripBodyHeight * 2)
-                        suite.expect(abs(restingBody.width - expectedWidth) <= 1
+                        suite.expect(abs(restingBody.width - expectedWidth) < NotchLayout.capsuleWidthStep
                                      && resting.width == resting.width.rounded()
                                      && resting.width <= geometry.cameraWidth,
                                      "a fitted width widens or narrows the capsule at rest, on whole points")

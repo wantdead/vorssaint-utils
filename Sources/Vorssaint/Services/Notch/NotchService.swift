@@ -1047,9 +1047,9 @@ final class NotchService: ObservableObject {
             let live = NotchMusicService.shared.playback
             let shown = heldMusic ?? (ownDisplay ? musicStripStandIn(for: live) : nil)
             let playback = shown?.playback ?? live
-            return layout.musicSurface(title: named
+            return layout.musicSurface(title: geometry.informativeActivities || named
                                         ? playback?.track.title ?? FeatureStrings.radialMenu(language).mediaNowPlaying : nil,
-                                       geometry: geometry)
+                                       geometry: geometry, artist: playback?.track.artist)
         case .timer:
             let timer = NotchTimerService.shared
             return layout.timerSurface(reading: NotchTimerSupport.compactText(for: timer.session, at: timer.now,
@@ -1069,11 +1069,19 @@ final class NotchService: ObservableObject {
             if let companion {
                 return layout.calendarPairSurface(companion: companion, workingAgents: working,
                                                   downloadPercent: download?.fraction != nil, geometry: geometry,
-                                                  language: language)
+                                                  language: language,
+                                                  title: layout.calendarTitle(countdown, language: language),
+                                                  time: NotchCalendarSupport.capsuleTimeRange(countdown.event, locale: language.formattingLocale()),
+                                                  countdown: NotchCalendarSupport.capsuleCountdownText(countdown, now: Date(), language: language),
+                                                  musicTitle: NotchMusicService.shared.playback?.track.title,
+                                                  musicArtist: NotchMusicService.shared.playback?.track.artist)
             }
             return layout.calendarSurface(title: layout.calendarTitle(countdown, language: language),
-                                          time: NotchCalendarSupport.timeText(countdown, locale: language.formattingLocale()),
-                                          geometry: geometry)
+                                          time: geometry.informativeActivities
+                                            ? NotchCalendarSupport.capsuleTimeRange(countdown.event, locale: language.formattingLocale())
+                                            : NotchCalendarSupport.timeText(countdown, locale: language.formattingLocale()),
+                                          geometry: geometry,
+                                          countdown: NotchCalendarSupport.capsuleCountdownText(countdown, now: Date(), language: language))
         case .watch:
             let watch = NotchWatchService.shared
             return layout.watchSurface(reading: watch.headline, thumbnail: watch.showsThumbnail, geometry: geometry)
@@ -1416,6 +1424,14 @@ final class NotchService: ObservableObject {
         // Explore or an app panel opened in the page's place keeps no event
         // for a later visit to Calendar.
         if !expanded || selected != .calendar || showingSections || showingAppPanel { calendar.revealing = nil }
+    }
+
+    func activateCalendarCapsule(at point: CGPoint) {
+        let strip = compactStripSize(for: .calendar, companion: compactCompanion)
+        let frame = geometry.frame(for: strip)
+        if geometry.informativeActivities, compactCompanion == .music, point.x < frame.midX {
+            openActivity(.music)
+        } else { openCountdownEvent() }
     }
 
     func open(_ module: NotchModule? = nil, pinned: Bool = false, takeFocus: Bool = true,
@@ -2735,7 +2751,9 @@ final class NotchService: ObservableObject {
         } else if notice != nil || dragPlaceholder {
             activationRect = .zero
         } else if showsCompactActivityPicker {
-            let strip = compactActivityGeometry.compactActivitySize
+            let strip = geometry.informativeActivities
+                ? CGSize(width: size.width, height: max(geometry.stripHeight, 32 + (geometry.floatingGap ?? 0) * 2))
+                : compactActivityGeometry.compactActivitySize
             activationRect = compactActivityGeometry.activationArea(
                 in: strip, hasHeader: false, compactActivity: true)
                 .offsetBy(dx: (size.width - strip.width) / 2, dy: 0)
@@ -2758,7 +2776,7 @@ final class NotchService: ObservableObject {
                 // The capsule's button covers its music bars too, which play or pause there.
                 else if self.geometry.floats, self.musicStripShowsControl { self.toggleMusicStripSong() }
                 else if !self.expanded, self.compactActivity == .calendar {
-                    self.openCountdownEvent()
+                    self.activateCalendarCapsule(at: NSEvent.mouseLocation)
                 } else { self.toggle() }
             })
         if panel?.isVisible != true { panel?.orderFrontRegardless() }
@@ -3502,7 +3520,8 @@ final class NotchService: ObservableObject {
                              capsuleFit: NotchCapsuleFit.current(),
                              hideMenuBarGap: UserDefaults.standard.bool(forKey: DefaultsKey.notchHideMenuBarGap),
                              outline: UserDefaults.standard.bool(forKey: DefaultsKey.notchOutlineEnabled),
-                             barEdge: 1 / max(1, screen.backingScaleFactor))
+                             barEdge: 1 / max(1, screen.backingScaleFactor),
+                             isExternalDisplay: CGDisplayIsBuiltin(screen.notchDisplayID) == 0)
     }
 
     private func updateFullscreenVisibility(displayID: CGDirectDisplayID) {

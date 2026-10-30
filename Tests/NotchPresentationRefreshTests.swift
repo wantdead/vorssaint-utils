@@ -242,6 +242,13 @@ enum NotchPresentationRefreshContract {
         var homeControls: [NotchControlItem] = []
         var expandedGeometry: NotchGeometry { geometry }
         var compactActivityGeometry: NotchGeometry { geometry.compactTimerGeometry(showsDownloads: false) }
+        var compactCompanion: NotchCompactActivity?
+        func compactStripSize(for activity: NotchCompactActivity, companion: NotchCompactActivity?) -> CGSize {
+            geometry.informativeActivities
+                ? NotchCapsuleLayout.informativeSurface(content: companion != nil ? 300 : 160, geometry: geometry)
+                : compactActivityGeometry.compactActivitySize
+        }
+        func openActivity(_ module: NotchModule) { selected = module; expanded = true }
         var surfaceSize: CGSize {
             if fullscreenCompact { return geometry.restingSize(showsContent: false) }
             if captureControls != nil { return captureControlsCollapsed ? geometry.collapsed : geometry.peek }
@@ -461,6 +468,19 @@ enum NotchPresentationRefreshContract {
         suite.expect(page.expandedGeometry.headerCameraGap == 210 && page.expandedGeometry.pageTopInset == 0,
                      "a page that wraps the camera starts at the top of the row")
         captureControlsChecks(suite)
+        let external = Service()
+        external.geometry = NotchGeometry(screen: CGRect(x: -1920, y: 0, width: 1920, height: 1080),
+                                          safeAreaTop: 0, cameraWidth: 0, compactSideRoom: 300,
+                                          silhouette: .capsule, isExternalDisplay: true)
+        external.compactCompanion = .music
+        let externalSize = external.compactStripSize(for: .calendar, companion: .music)
+        let externalFrame = external.geometry.frame(for: externalSize)
+        external.activateCalendarCapsule(at: CGPoint(x: externalFrame.minX + 20, y: externalFrame.midY))
+        suite.expect(external.selected == .music && external.countdownOpenings == 0,
+                     "the paired external capsule opens music from its left section")
+        external.activateCalendarCapsule(at: CGPoint(x: externalFrame.maxX - 20, y: externalFrame.midY))
+        suite.expect(external.countdownOpenings == 1,
+                     "the paired external capsule opens the event from its right section")
         let picker = Service()
         picker.expanded = false
         picker.compactActivityIsVisible = true
