@@ -176,6 +176,7 @@ enum SelfUninstall {
         QuickLauncherService.shared.suspend()
         ScreenTextService.shared.suspend()
         CameraPreviewService.shared.suspend()
+        TranslateShortcutService.shared.suspend()
         RadialMenuService.shared.suspend()
         ScratchpadService.shared.suspend()
         CommandBarService.shared.suspend()

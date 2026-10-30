@@ -423,6 +423,16 @@ enum CommandBarCatalog {
                 shortcut: roleShortcut(.scratchpad),
                 run: { _ in afterBeat { ScratchpadService.shared.show() } }))
         }
+        if NotchSupport.routesTranslate() {
+            entries.append(CommandBarEntry(
+                id: "action.translate",
+                title: FeatureStrings.translate(language).pageTitle,
+                subtitle: area(.translate, under: FeatureStrings.translate(language).pageTitle),
+                keywords: FeatureStrings.translate(.enUS).pageTitle,
+                icon: .symbol(AppFeature.translate.symbolName),
+                shortcut: roleShortcut(.translate),
+                run: { _ in afterBeat { NotchService.shared.showTranslate() } }))
+        }
         if AppFeature.cameraPreview.isAvailable {
             entries.append(CommandBarEntry(
                 id: "action.cameraPreview",

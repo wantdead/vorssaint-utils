@@ -72,3 +72,12 @@ enum TranslateAvailability {
         operatingSystem.majorVersion >= 15
     }
 }
+
+extension NotchSupport {
+    /// Translate only exists as an island page, so anything that opens it
+    /// needs the island on and the page among its modules.
+    static func routesTranslate(in defaults: UserDefaults = .standard) -> Bool {
+        AppFeature.translate.isAvailable(in: defaults)
+            && isEnabled(in: defaults) && modules(in: defaults).contains(.translate)
+    }
+}

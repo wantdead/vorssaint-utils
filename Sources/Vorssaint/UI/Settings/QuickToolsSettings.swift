@@ -11,11 +11,13 @@ struct QuickToolsSettings: View {
     @ObservedObject private var micMute = MicMuteService.shared
     @ObservedObject private var launcher = QuickLauncherService.shared
     @ObservedObject private var cameraPreview = CameraPreviewService.shared
+    @ObservedObject private var translateShortcut = TranslateShortcutService.shared
     @ObservedObject private var scratchpad = ScratchpadService.shared
     @ObservedObject private var brightness = BrightnessService.shared
     @AppStorage(DefaultsKey.quickLauncherShortcutEnabled) private var launcherShortcutEnabled = true
     @AppStorage(DefaultsKey.micMuteShortcutEnabled) private var micShortcutEnabled = false
     @AppStorage(DefaultsKey.cameraPreviewShortcutEnabled) private var cameraShortcutEnabled = false
+    @AppStorage(DefaultsKey.translateShortcutEnabled) private var translateShortcutEnabled = false
     @AppStorage(DefaultsKey.scratchpadShortcutEnabled) private var scratchpadShortcutEnabled = false
     @AppStorage(DefaultsKey.scratchpadRetention) private var scratchpadRetention = ScratchpadRetention.never.rawValue
     @AppStorage(DefaultsKey.scratchpadCloseOnClickOutside) private var scratchpadCloseOnClickOutside = true
@@ -170,6 +172,26 @@ struct QuickToolsSettings: View {
                     Text(FeatureStrings.cameraPreview(l10n.language).pageTitle)
                 }
                 .settingsFormSectionAnchor(.cameraPreview)
+            }
+
+            if AppFeature.translate.isAvailable {
+                Section {
+                    Toggle(l10n.s.quickToolShortcutToggle, isOn: $translateShortcutEnabled)
+                        .onChange(of: translateShortcutEnabled) { _, _ in
+                            TranslateShortcutService.shared.syncWithPreferences()
+                        }
+                    ShortcutPreferenceRow(role: .translate,
+                                          isEnabled: translateShortcutEnabled) {
+                        TranslateShortcutService.shared.syncWithPreferences()
+                    }
+                    if translateShortcutEnabled, translateShortcut.shortcutRegistrationFailed {
+                        Text(l10n.s.shortcutUnavailable)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                } header: {
+                    Text(FeatureStrings.translate(l10n.language).pageTitle)
+                }
             }
 
             if AppFeature.wallpaper.isAvailable {

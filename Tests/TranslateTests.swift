@@ -76,6 +76,33 @@ enum TranslateTests {
         suite.expect(NotchModule.translate.isAvailable(in: defaults)
                      == AppFeature.translate.isAvailable(in: defaults),
                      "the island page follows the feature's availability")
+
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.translateShortcutEnabled] as? Bool == false,
+                     "the translate shortcut ships off like the other quick tools")
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.translateShortcut] as? String
+                     == "control+option+command:5",
+                     "the default translate shortcut is control option command G")
+        suite.expect(GlobalShortcutRole.translate.requiredEnableKeys
+                     == [DefaultsKey.notchEnabled, DefaultsKey.translateShortcutEnabled]
+                     && GlobalShortcutRole.translate.feature == .translate,
+                     "the translate shortcut needs the island, its own toggle and the feature")
+        suite.expect(SettingsBackupSupport.exportKeys().isSuperset(of: [DefaultsKey.translateShortcut,
+                                                                         DefaultsKey.translateShortcutEnabled]),
+                     "the translate shortcut travels with the settings backup")
+        suite.expect(GlobalShortcutRole.conflict(for: .translateDefault, excluding: .translate,
+                                                 includeInactive: true) == nil,
+                     "the default translate shortcut collides with no other role")
+        defaults.set(true, forKey: DefaultsKey.notchEnabled)
+        defaults.set(true, forKey: AppFeature.notch.availabilityKey)
+        suite.expect(NotchSupport.routesTranslate(in: defaults),
+                     "translate routes through the island while its page is on")
+        defaults.set(NotchModule.translate.rawValue, forKey: DefaultsKey.notchHiddenModules)
+        suite.expect(!NotchSupport.routesTranslate(in: defaults),
+                     "a hidden island page cannot be opened by the shortcut or the command bar")
+        defaults.set(false, forKey: DefaultsKey.notchEnabled)
+        defaults.removeObject(forKey: DefaultsKey.notchHiddenModules)
+        suite.expect(!NotchSupport.routesTranslate(in: defaults),
+                     "translate does not route anywhere while the island is off")
         suite.expect(Set(NotchModule.allCases.map(\.shortcutKey)).count == NotchModule.allCases.count,
                      "every island page keeps its own shortcut key")
         suite.expect(AppLanguage.allCases.allSatisfy { language in

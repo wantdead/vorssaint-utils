@@ -594,6 +594,8 @@ enum DefaultsKey {
     static let micMuteShortcut = "micMuteShortcut"
     static let cameraPreviewShortcutEnabled = "cameraPreviewShortcutEnabled"
     static let cameraPreviewShortcut = "cameraPreviewShortcut"
+    static let translateShortcutEnabled = "translateShortcutEnabled"
+    static let translateShortcut = "translateShortcut"
     static let wallpaperApplyAllDisplays = "wallpaperApplyAllDisplays"
     static let wallpaperFilter = "wallpaperFilter"
     static let wallpaperOwnBookmarks = "wallpaperOwnBookmarks"
@@ -1806,6 +1808,8 @@ enum Defaults {
         DefaultsKey.micMuteShortcut: GlobalShortcut.micMuteDefault.storageValue,
         DefaultsKey.cameraPreviewShortcutEnabled: false,
         DefaultsKey.cameraPreviewShortcut: GlobalShortcut.cameraPreviewDefault.storageValue,
+        DefaultsKey.translateShortcutEnabled: false,
+        DefaultsKey.translateShortcut: GlobalShortcut.translateDefault.storageValue,
         DefaultsKey.wallpaperApplyAllDisplays: true,
         DefaultsKey.wallpaperFilter: "all",
         DefaultsKey.wallpaperDynamicMode: "off",

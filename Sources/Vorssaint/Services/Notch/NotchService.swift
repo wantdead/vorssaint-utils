@@ -1136,6 +1136,7 @@ final class NotchService: ObservableObject {
 
     func syncWithPreferences() {
         preferenceSyncWork?.cancel(); preferenceSyncWork = nil
+        if AppFeature.translate.isAvailable { TranslateShortcutService.shared.syncWithPreferences() }
         guard NotchSupport.isEnabled() else { stop(); return }
         if !running {
             running = true

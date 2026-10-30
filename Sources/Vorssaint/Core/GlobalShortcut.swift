@@ -194,6 +194,9 @@ struct GlobalShortcut: Equatable, Hashable {
     // W for webcam, on the same free control-option-command layer.
     static let cameraPreviewDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_W),
                                                      modifiers: [.control, .option, .command])
+    // G for globe, on the same free control-option-command layer.
+    static let translateDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_G),
+                                                 modifiers: [.control, .option, .command])
     // V for Vorssaint: the quick launcher's own combination.
     static let quickLauncherDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_V),
                                                      modifiers: [.control, .command])
@@ -713,6 +716,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
     case recentCaptures
     case screenshotClipboard
     case cameraPreview
+    case translate
     case radialMenu
     case scratchpad
     case snippetLibrary
@@ -748,6 +752,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .recentCaptures: return DefaultsKey.recentCapturesShortcut
         case .screenshotClipboard: return DefaultsKey.screenshotClipboardShortcut
         case .cameraPreview: return DefaultsKey.cameraPreviewShortcut
+        case .translate: return DefaultsKey.translateShortcut
         case .radialMenu: return DefaultsKey.radialMenuShortcut
         case .scratchpad: return DefaultsKey.scratchpadShortcut
         case .snippetLibrary: return DefaultsKey.snippetLibraryShortcut
@@ -783,6 +788,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .recentCaptures: return .recentCapturesDefault
         case .screenshotClipboard: return .screenshotClipboardDefault
         case .cameraPreview: return .cameraPreviewDefault
+        case .translate: return .translateDefault
         case .radialMenu: return .radialMenuDefault
         case .scratchpad: return .scratchpadDefault
         case .snippetLibrary: return .snippetLibraryDefault
@@ -843,6 +849,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .screenshotClipboard:
             return FeatureStrings.screenshot(L10n.shared.language).editClipboardImage
         case .cameraPreview: return FeatureStrings.cameraPreview(L10n.shared.language).pageTitle
+        case .translate: return FeatureStrings.translate(L10n.shared.language).pageTitle
         case .radialMenu: return FeatureStrings.radialMenu(L10n.shared.language).pageTitle
         case .scratchpad: return FeatureStrings.scratchpad(L10n.shared.language).pageTitle
         case .snippetLibrary: return FeatureStrings.snippets(L10n.shared.language).libraryTitle
@@ -905,6 +912,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .recentCaptures: return [DefaultsKey.recentCapturesShortcutEnabled]
         case .screenshotClipboard: return [DefaultsKey.screenshotClipboardShortcutEnabled]
         case .cameraPreview: return [DefaultsKey.cameraPreviewShortcutEnabled]
+        case .translate: return [DefaultsKey.notchEnabled, DefaultsKey.translateShortcutEnabled]
         case .radialMenu: return [DefaultsKey.radialMenuEnabled]
         case .scratchpad: return [DefaultsKey.scratchpadShortcutEnabled]
         case .snippetLibrary: return [DefaultsKey.snippetLibraryEnabled]
@@ -939,6 +947,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
              .screenshotClipboard, .screenshotUpload:
             return .screenshot
         case .cameraPreview: return .cameraPreview
+        case .translate: return .translate
         case .radialMenu: return .radialMenu
         case .scratchpad: return .scratchpad
         case .snippetLibrary: return .textSnippets
